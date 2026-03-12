@@ -164,6 +164,75 @@ def scrape_race(jcd, hd, rno):
     except:
         pass
     
+    time.sleep(0.3)
+    
+    # === 直前情報（気象＋体重）===
+    try:
+        soup = fetch(f"{BASE}/beforeinfo?rno={rno}&jcd={jcd}&hd={hd}")
+        weather = {}
+        
+        # 気象データ: .weather1 内のラベルとデータを取得
+        w1 = soup.find("div", class_="weather1")
+        if w1:
+            labels = w1.find_all("span", class_="weather1_bodyUnitLabelTitle")
+            datas = w1.find_all("span", class_="weather1_bodyUnitLabelData")
+            if not datas:
+                datas = w1.find_all("div", class_="weather1_bodyUnitLabelData")
+            
+            all_text = w1.get_text()
+            
+            # 気温
+            m = re.search(r'気温\s*([\d.]+)', all_text)
+            if m: weather["temp"] = float(m.group(1))
+            
+            # 水温
+            m = re.search(r'水温\s*([\d.]+)', all_text)
+            if m: weather["waterTemp"] = float(m.group(1))
+            
+            # 風速
+            m = re.search(r'風速\s*(\d+)', all_text)
+            if m: weather["windSpeed"] = int(m.group(1))
+            
+            # 波高
+            m = re.search(r'波高\s*(\d+)', all_text)
+            if m: weather["waveHeight"] = int(m.group(1))
+            
+            # 天候
+            for sky in ["晴", "曇り", "曇", "雨", "雪", "霧"]:
+                if sky in all_text:
+                    weather["sky"] = sky
+                    break
+            
+            # 風向き（is-windXX クラスから）
+            wind_el = w1.find("p", class_=re.compile(r"is-wind\d"))
+            if not wind_el:
+                wind_el = w1.find("div", class_=re.compile(r"is-wind\d"))
+            if wind_el:
+                cls = [c for c in wind_el.get("class", []) if c.startswith("is-wind")]
+                if cls:
+                    m2 = re.search(r'is-wind(\d+)', cls[0])
+                    if m2: weather["windDir"] = int(m2.group(1))
+        
+        if weather:
+            race["weather"] = weather
+        
+        # 体重（各選手）
+        weights = []
+        for tbody in soup.find_all("tbody", class_="is-fs12"):
+            for td in tbody.find_all("td"):
+                t = td.get_text(strip=True)
+                m = re.match(r'([\d.]+)kg', t)
+                if m:
+                    weights.append(float(m.group(1)))
+                    break
+        
+        if weights and "boats" in race:
+            for i, w in enumerate(weights):
+                if i < len(race["boats"]):
+                    race["boats"][i]["weight"] = w
+    except:
+        pass
+    
     return race
 
 def fetch_day(hd, jcd_list=None):

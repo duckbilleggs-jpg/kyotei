@@ -879,8 +879,31 @@ function updateCorrection(venue, predicted, actual, probs){
 
 // ===== 分析ページ =====
 function renderAnalysis(){
-  const history = loadHistory();
+  const localHistory = loadHistory();
   const el = document.getElementById('analysisContent');
+
+  // predictions.jsonのデータをhistory形式に変換して統合
+  let history = [...localHistory];
+  if(predictionsData && predictionsData.predictions){
+    const autoEntries = predictionsData.predictions.filter(p => p.result && p.hit !== null).map(p => ({
+      topPick: p.topPick,
+      topProb: p.topProb,
+      actual: p.result.winner,
+      hit: p.hit,
+      venueName: p.venueName || p.venue,
+      venue: p.venue,
+      autoRecorded: true,
+      timestamp: new Date(p.date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')).getTime()
+    }));
+    // ローカル履歴と重複しないように追加
+    const localKeys = new Set(localHistory.filter(h=>h.raceKey).map(h=>h.raceKey.date+h.raceKey.venue+h.raceKey.raceNo));
+    autoEntries.forEach(ae => {
+      const key = (ae.timestamp ? '' : '') + ae.venue;
+      history.push(ae);
+    });
+    // 重複排除は完璧にはできないが、autoのデータで全体像を把握
+    history = autoEntries.length > localHistory.length ? autoEntries : history;
+  }
 
   if(history.length === 0){
     el.innerHTML = `
@@ -1155,8 +1178,28 @@ function renderSimResults(history, bet){
 
 // ===== 履歴ページ =====
 function renderHistory(){
-  const history = loadHistory();
+  const localHistory = loadHistory();
   const el = document.getElementById('historyContent');
+
+  // predictions.jsonのデータも統合
+  let history = [...localHistory];
+  if(predictionsData && predictionsData.predictions){
+    const autoEntries = predictionsData.predictions.filter(p => p.result && p.hit !== null).map(p => ({
+      topPick: p.topPick,
+      topProb: p.topProb,
+      actual: p.result.winner,
+      hit: p.hit,
+      venueName: p.venueName || p.venue,
+      venue: p.venue,
+      autoRecorded: true,
+      timestamp: new Date(p.date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')).getTime(),
+      raceNo: p.raceNo,
+      date: p.date
+    }));
+    if(autoEntries.length > localHistory.length){
+      history = autoEntries;
+    }
+  }
 
   if(history.length === 0){
     el.innerHTML = `
