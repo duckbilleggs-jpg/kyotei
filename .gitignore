@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+venv/
+.env
+
+# デバッグ用ファイル
+debug_*.py
+debug_*.html
+debug_*.txt
+save_html.py
+python_check.txt
+run_log.txt
+
+# データ（個別日別JSONは管理外、マスターDBのみ管理）
+data/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# tmp
+/tmp/
+*.tmp

@@ -1,0 +1,73 @@
+name: 🚤 競艇データ自動更新
+
+on:
+  # 毎日朝8時(JST)に自動実行 = UTC 23:00前日
+  schedule:
+    - cron: '0 23 * * *'
+  # 手動実行も可能
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 チェックアウト
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 依存関係インストール
+        run: pip install requests beautifulsoup4
+
+      - name: 📂 dataディレクトリ作成
+        run: mkdir -p data
+
+      - name: 🚤 データ取得（過去3日分）
+        run: python quick_fetch.py
+        timeout-minutes: 30
+
+      - name: 📊 変更確認 & コミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add race_db.json
+          if git diff --staged --quiet; then
+            echo "✅ データ変更なし"
+          else
+            git commit -m "🚤 データ自動更新 $(date '+%Y-%m-%d %H:%M' -d '+9 hours')"
+            git push
+            echo "✅ データ更新をプッシュしました"
+          fi
+
+  # GitHub Pages デプロイ
+  deploy:
+    needs: update-data
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 📥 チェックアウト
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 📄 Pages設定
+        uses: actions/configure-pages@v4
+
+      - name: 📦 アーティファクトアップロード
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: 🚀 デプロイ
+        id: deployment
+        uses: actions/deploy-pages@v4

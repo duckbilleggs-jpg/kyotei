@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>競艇AI予測</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0e1a;--card:#141929;--card2:#1c2238;
+  --accent:#00d4ff;--accent2:#7b61ff;--gold:#ffd700;
+  --green:#00e676;--red:#ff5252;--orange:#ff9100;
+  --text:#e8eaf6;--text2:#8892b0;
+  --grad1:linear-gradient(135deg,#00d4ff,#7b61ff);
+  --grad2:linear-gradient(135deg,#ff6b6b,#ffd93d);
+  --grad3:linear-gradient(135deg,#00e676,#00d4ff);
+}
+html,body{height:100%;font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+
+/* ヘッダー */
+.header{
+  background:linear-gradient(180deg,rgba(20,25,41,.98),rgba(10,14,26,.95));
+  backdrop-filter:blur(20px);
+  padding:12px 16px;display:flex;align-items:center;justify-content:space-between;
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  border-bottom:1px solid rgba(0,212,255,.15);
+}
+.header h1{font-size:18px;font-weight:900;background:var(--grad1);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header .sync{font-size:11px;color:var(--accent);opacity:.8}
+
+/* ナビ */
+.nav{
+  position:fixed;bottom:0;left:0;right:0;z-index:100;
+  background:linear-gradient(180deg,rgba(10,14,26,.95),rgba(10,14,26,.99));
+  backdrop-filter:blur(20px);
+  display:flex;border-top:1px solid rgba(0,212,255,.1);
+  padding-bottom:env(safe-area-inset-bottom,8px);
+}
+.nav-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  padding:8px 4px 6px;cursor:pointer;transition:.2s;
+  color:var(--text2);font-size:10px;gap:3px;
+}
+.nav-item.active{color:var(--accent)}
+.nav-item .icon{font-size:20px}
+
+/* メインコンテンツ */
+.main{padding:60px 12px 80px;max-width:480px;margin:0 auto}
+.page{display:none}.page.active{display:block}
+
+/* カード */
+.card{
+  background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;
+  border:1px solid rgba(255,255,255,.05);
+  box-shadow:0 4px 24px rgba(0,0,0,.3);
+}
+
+/* 会場選択 */
+.venue-select{
+  width:100%;padding:12px 16px;border-radius:12px;
+  background:var(--card2);color:var(--text);border:1px solid rgba(0,212,255,.2);
+  font-size:15px;font-family:inherit;appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2300d4ff' stroke-width='2' fill='none'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 14px center;
+}
+.venue-select option{background:#1c2238;color:#e8eaf6}
+
+/* リンクバー */
+.link-bar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.link-bar a{
+  flex:1;min-width:80px;padding:10px 8px;border-radius:10px;
+  background:var(--card2);color:var(--accent);text-decoration:none;
+  font-size:12px;font-weight:500;text-align:center;
+  border:1px solid rgba(0,212,255,.15);transition:.2s;
+  display:flex;align-items:center;justify-content:center;gap:4px;
+}
+.link-bar a:active{background:rgba(0,212,255,.1);transform:scale(.97)}
+
+/* 入力グリッド */
+.boat-grid{display:flex;flex-direction:column;gap:8px}
+.boat-row{
+  display:grid;grid-template-columns:40px 1fr 1fr;gap:8px;align-items:center;
+}
+.boat-num{
+  width:36px;height:36px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:900;font-size:16px;color:#fff;
+}
+/* 公式カラー: 1白 2黒 3赤 4青 5黄 6緑 */
+
+input[type=number]{
+  width:100%;padding:10px 12px;border-radius:10px;
+  background:var(--card2);color:var(--text);
+  border:1px solid rgba(255,255,255,.08);
+  font-size:15px;font-family:inherit;
+  -moz-appearance:textfield;
+}
+input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none}
+input::placeholder{color:var(--text2);font-size:12px}
+input:focus{outline:none;border-color:var(--accent)}
+
+.label-row{
+  display:grid;grid-template-columns:40px 1fr 1fr;gap:8px;
+  margin-bottom:4px;
+}
+.label-row span{font-size:11px;color:var(--text2);font-weight:500;text-align:center}
+
+/* ボタン */
+.btn{
+  width:100%;padding:14px;border:none;border-radius:14px;
+  font-size:16px;font-weight:700;cursor:pointer;
+  transition:.2s;font-family:inherit;
+}
+.btn-primary{
+  background:var(--grad1);color:#fff;
+  box-shadow:0 4px 20px rgba(0,212,255,.3);
+}
+.btn-primary:active{transform:scale(.97);opacity:.9}
+.btn-secondary{
+  background:var(--card2);color:var(--accent);
+  border:1px solid rgba(0,212,255,.3);
+}
+
+/* 結果カード */
+.result-card{
+  background:linear-gradient(135deg,rgba(0,212,255,.08),rgba(123,97,255,.08));
+  border:1px solid rgba(0,212,255,.2);border-radius:16px;
+  padding:20px;text-align:center;margin-bottom:12px;
+}
+.result-rank{font-size:13px;color:var(--text2);margin-bottom:4px}
+.result-boat{font-size:56px;font-weight:900;background:var(--grad1);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.result-prob{font-size:14px;color:var(--text2);margin-top:4px}
+
+/* 判定バッジ */
+.badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;
+}
+.badge-hot{background:rgba(255,82,82,.15);color:var(--red);border:1px solid rgba(255,82,82,.3)}
+.badge-buy{background:rgba(0,212,255,.1);color:var(--accent);border:1px solid rgba(0,212,255,.3)}
+.badge-skip{background:rgba(136,146,176,.1);color:var(--text2);border:1px solid rgba(136,146,176,.2)}
+.badge-hit{background:rgba(0,230,118,.15);color:var(--green);border:1px solid rgba(0,230,118,.3)}
+.badge-miss{background:rgba(255,82,82,.1);color:var(--red);border:1px solid rgba(255,82,82,.2)}
+
+/* 確率バー */
+.prob-list{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.prob-item{display:flex;align-items:center;gap:10px}
+.prob-item .num{width:28px;font-weight:700;font-size:14px;text-align:center}
+.prob-bar-bg{flex:1;height:26px;background:var(--card2);border-radius:8px;overflow:hidden;position:relative}
+.prob-bar{height:100%;border-radius:8px;transition:width .6s ease;display:flex;align-items:center;padding-left:8px;font-size:12px;font-weight:700;color:#fff;min-width:36px}
+.prob-item:nth-child(1) .prob-bar{background:linear-gradient(90deg,#e53935,#ff6b6b)}
+.prob-item:nth-child(2) .prob-bar{background:linear-gradient(90deg,#111,#333)}
+.prob-item:nth-child(3) .prob-bar{background:linear-gradient(90deg,#e53935,#ff8a80)}
+.prob-item:nth-child(4) .prob-bar{background:linear-gradient(90deg,#1565c0,#42a5f5)}
+.prob-item:nth-child(5) .prob-bar{background:linear-gradient(90deg,#f9a825,#fdd835)}
+.prob-item:nth-child(6) .prob-bar{background:linear-gradient(90deg,#2e7d32,#66bb6a)}
+
+/* 記録入力 */
+.record-section{margin-top:16px}
+.record-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.record-btn{
+  width:48px;height:48px;border-radius:12px;border:2px solid rgba(255,255,255,.1);
+  background:var(--card2);color:var(--text);
+  font-size:18px;font-weight:900;cursor:pointer;transition:.2s;
+}
+.record-btn:active{transform:scale(.9)}
+.record-btn.selected{border-color:var(--accent);background:rgba(0,212,255,.1)}
+
+/* 分析 */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.stat-box{
+  background:var(--card2);border-radius:12px;padding:14px;text-align:center;
+}
+.stat-val{font-size:28px;font-weight:900;background:var(--grad1);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stat-label{font-size:11px;color:var(--text2);margin-top:2px}
+
+/* 履歴リスト */
+.history-item{
+  display:flex;align-items:center;gap:12px;
+  padding:12px;border-radius:12px;background:var(--card2);margin-bottom:8px;
+}
+.history-item .hi-venue{font-size:12px;color:var(--text2);min-width:48px}
+.history-item .hi-pred{font-size:14px;font-weight:700}
+.history-item .hi-result{margin-left:auto}
+
+/* シミュ */
+.sim-control{margin-bottom:12px}
+.sim-control label{font-size:12px;color:var(--text2);display:block;margin-bottom:4px}
+.sim-control input[type=date],.sim-control input[type=range]{
+  width:100%;padding:10px;border-radius:10px;
+  background:var(--card2);color:var(--text);border:1px solid rgba(255,255,255,.08);
+  font-family:inherit;
+}
+.sim-control input[type=range]{padding:4px 0;background:transparent;border:none}
+.sim-val{font-size:20px;font-weight:900;color:var(--accent);text-align:center;margin:4px 0}
+
+/* グラフ */
+.chart-container{position:relative;width:100%;height:200px;margin-top:12px}
+.chart-canvas{width:100%!important;height:100%!important}
+
+/* 戦略比較 */
+.strategy-cards{display:flex;flex-direction:column;gap:8px}
+.strat-card{
+  border-radius:12px;padding:14px;
+  border:1px solid rgba(255,255,255,.05);
+}
+.strat-card.best{border-color:rgba(0,230,118,.3);background:rgba(0,230,118,.05)}
+.strat-name{font-size:13px;font-weight:700;margin-bottom:6px}
+.strat-stats{display:flex;gap:12px;font-size:12px;color:var(--text2)}
+.strat-profit{font-size:22px;font-weight:900;margin-top:4px}
+.strat-profit.plus{color:var(--green)}.strat-profit.minus{color:var(--red)}
+
+/* セクション */
+.section-title{font-size:14px;font-weight:700;color:var(--text2);margin:16px 0 8px;display:flex;align-items:center;gap:6px}
+
+/* 空状態 */
+.empty-state{text-align:center;padding:40px 20px;color:var(--text2)}
+.empty-state .icon{font-size:48px;margin-bottom:12px}
+.empty-state p{font-size:13px;line-height:1.7}
+
+/* フィルター */
+.filter-row{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;padding-bottom:4px}
+.filter-chip{
+  padding:6px 14px;border-radius:20px;font-size:12px;font-weight:500;
+  background:var(--card2);color:var(--text2);border:1px solid rgba(255,255,255,.05);
+  white-space:nowrap;cursor:pointer;transition:.2s;
+}
+.filter-chip.active{background:rgba(0,212,255,.1);color:var(--accent);border-color:rgba(0,212,255,.3)}
+
+/* トースト */
+.toast{
+  position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-20px);
+  background:var(--card);border:1px solid rgba(0,212,255,.3);
+  color:var(--text);padding:10px 20px;border-radius:12px;
+  font-size:13px;font-weight:500;z-index:200;opacity:0;
+  transition:.3s;pointer-events:none;
+  box-shadow:0 8px 32px rgba(0,0,0,.4);
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* アニメ */
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn .3s ease}
+
+/* 削除ボタン */
+.delete-btn{
+  background:none;border:none;color:var(--red);font-size:18px;
+  cursor:pointer;padding:4px 8px;opacity:.6;transition:.2s;
+}
+.delete-btn:active{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<div class="header">
+  <h1>🚤 競艇AI予測</h1>
+  <span class="sync" id="syncStatus">💾 読込中...</span>
+</div>
+
+<!-- トースト -->
+<div class="toast" id="toast"></div>
+
+<!-- メインコンテンツ -->
+<div class="main">
+
+  <!-- ===== 予測ページ ===== -->
+  <div class="page active" id="page-predict">
+    <div class="card fade-in">
+      <select class="venue-select" id="venueSelect">
+        <option value="">🏟️ 会場を選択</option>
+      </select>
+      <select class="venue-select" id="raceNoSelect" style="margin-top:8px;display:none">
+        <option value="">🏁 レース番号を選択</option>
+      </select>
+      <div id="raceInfo" style="display:none;margin-top:8px;padding:8px 12px;border-radius:10px;background:rgba(0,212,255,.05);border:1px solid rgba(0,212,255,.15);font-size:12px;color:var(--accent)"></div>
+    </div>
+
+    <div class="link-bar fade-in">
+      <a href="https://www.boatrace.jp/owpc/pc/race/racelist" target="_blank" rel="noopener">📄 出走表</a>
+      <a href="https://www.boatrace.jp/owpc/pc/race/oddstf" target="_blank" rel="noopener">💴 オッズ</a>
+      <a href="https://www.boatrace.jp/owpc/pc/extra/data/download.html" target="_blank" rel="noopener">📊 データ</a>
+    </div>
+
+    <div class="card fade-in">
+      <div class="label-row" style="grid-template-columns:40px 80px 1fr 1fr">
+        <span></span>
+        <span>選手</span>
+        <span>勝率</span>
+        <span>オッズ</span>
+      </div>
+      <div class="boat-grid" id="boatInputs"></div>
+    </div>
+
+    <button class="btn btn-primary fade-in" onclick="predict()" style="margin-top:8px">
+      🎯 予測する
+    </button>
+  </div>
+
+  <!-- ===== 結果ページ ===== -->
+  <div class="page" id="page-result">
+    <div id="resultContent">
+      <div class="empty-state">
+        <div class="icon">🎯</div>
+        <p>予測ページでデータを入力して<br>「予測する」を押してください</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 分析ページ ===== -->
+  <div class="page" id="page-analysis">
+    <div id="analysisContent"></div>
+  </div>
+
+  <!-- ===== シミュレーション ===== -->
+  <div class="page" id="page-sim">
+    <div id="simContent"></div>
+  </div>
+
+  <!-- ===== 履歴ページ ===== -->
+  <div class="page" id="page-history">
+    <div id="historyContent"></div>
+  </div>
+</div>
+
+<!-- ナビ -->
+<nav class="nav">
+  <div class="nav-item active" onclick="switchPage('predict')">
+    <span class="icon">🎯</span><span>予測</span>
+  </div>
+  <div class="nav-item" onclick="switchPage('result')">
+    <span class="icon">📊</span><span>結果</span>
+  </div>
+  <div class="nav-item" onclick="switchPage('analysis')">
+    <span class="icon">🔬</span><span>分析</span>
+  </div>
+  <div class="nav-item" onclick="switchPage('sim')">
+    <span class="icon">💰</span><span>シミュ</span>
+  </div>
+  <div class="nav-item" onclick="switchPage('history')">
+    <span class="icon">📋</span><span>履歴</span>
+  </div>
+</nav>
+
+<script>
+// ===== 会場データ =====
+const VENUES = [
+  {id:'01',name:'桐生'},{id:'02',name:'戸田'},{id:'03',name:'江戸川'},
+  {id:'04',name:'平和島'},{id:'05',name:'多摩川'},{id:'06',name:'浜名湖'},
+  {id:'07',name:'蒲郡'},{id:'08',name:'常滑'},{id:'09',name:'津'},
+  {id:'10',name:'三国'},{id:'11',name:'びわこ'},{id:'12',name:'住之江'},
+  {id:'13',name:'尼崎'},{id:'14',name:'鳴門'},{id:'15',name:'丸亀'},
+  {id:'16',name:'児島'},{id:'17',name:'宮島'},{id:'18',name:'徳山'},
+  {id:'19',name:'下関'},{id:'20',name:'若松'},{id:'21',name:'芦屋'},
+  {id:'22',name:'福岡'},{id:'23',name:'唐津'},{id:'24',name:'大村'}
+];
+
+// 1コースの勝率ベース（会場別）
+const COURSE1_BASE = {
+  '01':.54,'02':.45,'03':.44,'04':.48,'05':.54,'06':.56,
+  '07':.56,'08':.56,'09':.55,'10':.53,'11':.52,'12':.54,
+  '13':.56,'14':.56,'15':.56,'16':.53,'17':.56,'18':.62,
+  '19':.56,'20':.53,'21':.60,'22':.52,'23':.56,'24':.63
+};
+
+// ===== ストレージ =====
+function loadHistory(){ return JSON.parse(localStorage.getItem('boatrace_history')||'[]') }
+function saveHistory(h){ localStorage.setItem('boatrace_history',JSON.stringify(h)) }
+function loadCorrection(){ return JSON.parse(localStorage.getItem('boatrace_correction')||'{}') }
+function saveCorrection(c){ localStorage.setItem('boatrace_correction',JSON.stringify(c)) }
+
+// ===== 初期化 =====
+const venueSelect = document.getElementById('venueSelect');
+VENUES.forEach(v => {
+  const o = document.createElement('option');
+  o.value = v.id; o.textContent = v.name;
+  venueSelect.appendChild(o);
+});
+
+// 艇入力欄生成
+// 公式カラー: 1白 2黒 3赤 4青 5黄 6緑
+const boatColors = ['#ffffff','#111111','#e53935','#1565c0','#f9a825','#2e7d32'];
+const boatBorders = ['2px solid #888','2px solid #444','','','',''];
+const boatTextColors = ['#000','#fff','#fff','#fff','#000','#fff'];
+const boatInputsEl = document.getElementById('boatInputs');
+for(let i=1;i<=6;i++){
+  const row = document.createElement('div');
+  row.className='boat-row';
+  row.style.gridTemplateColumns='40px 80px 1fr 1fr';
+  row.innerHTML=`
+    <div class="boat-num" style="background:${boatColors[i-1]};${boatBorders[i-1]?'border:'+boatBorders[i-1]:''}; color:${boatTextColors[i-1]}">${i}</div>
+    <div id="name${i}" style="font-size:11px;color:var(--text2);display:flex;align-items:center;overflow:hidden;white-space:nowrap">-</div>
+    <input type="number" step="0.01" placeholder="勝率" id="wr${i}" inputmode="decimal">
+    <input type="number" step="0.1" placeholder="オッズ" id="odds${i}" inputmode="decimal">
+  `;
+  boatInputsEl.appendChild(row);
+}
+
+// ===== race_db.json 読込 =====
+let raceDB = null;
+async function loadRaceDB(){
+  try{
+    const res = await fetch('race_db.json?t='+Date.now());
+    if(!res.ok) throw new Error('not found');
+    raceDB = await res.json();
+    console.log('race_db loaded:',raceDB.totalRaces,'races');
+    updateSyncStatus();
+    return true;
+  }catch(e){
+    console.log('race_db.json not found, manual input mode');
+    raceDB = null;
+    updateSyncStatus();
+    return false;
+  }
+}
+loadRaceDB();
+
+// ===== 会場選択時: レース番号リスト表示 =====
+venueSelect.addEventListener('change', function(){
+  const jcd = this.value;
+  const raceNoSel = document.getElementById('raceNoSelect');
+  const raceInfo = document.getElementById('raceInfo');
+  raceNoSel.innerHTML = '<option value="">🏁 レース番号を選択</option>';
+  raceInfo.style.display = 'none';
+  clearBoatInputs();
+
+  if(!jcd || !raceDB){ raceNoSel.style.display='none'; return; }
+
+  // 今日のデータからこの会場のレースを探す
+  const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  const venueRaces = raceDB.races.filter(r => r.venue === jcd);
+  const todayRaces = venueRaces.filter(r => r.date === today);
+  const latestDate = venueRaces.length > 0 ? venueRaces.reduce((a,b) => a.date > b.date ? a : b).date : null;
+  const targetRaces = todayRaces.length > 0 ? todayRaces : venueRaces.filter(r => r.date === latestDate);
+
+  if(targetRaces.length === 0){ raceNoSel.style.display='none'; return; }
+
+  // 日付表示
+  const d = targetRaces[0].date;
+  const dateLabel = d === today ? '🔴 本日' : `📅 ${d.slice(4,6)}/${d.slice(6,8)}`;
+  
+  targetRaces.sort((a,b) => a.raceNo - b.raceNo);
+  targetRaces.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = JSON.stringify({date:r.date, venue:r.venue, raceNo:r.raceNo});
+    const hasResult = r.result ? ' ✅結果有' : '';
+    opt.textContent = `${dateLabel} ${r.raceNo}R${hasResult}`;
+    raceNoSel.appendChild(opt);
+  });
+  raceNoSel.style.display = 'block';
+
+  // DBデータ件数表示
+  raceInfo.innerHTML = `📊 DB: ${venueRaces.length}レース (${targetRaces.length}R ${dateLabel})`;
+  raceInfo.style.display = 'block';
+});
+
+// ===== レース選択時: 勝率・オッズ自動入力 =====
+document.getElementById('raceNoSelect').addEventListener('change', function(){
+  if(!this.value){ clearBoatInputs(); return; }
+  const sel = JSON.parse(this.value);
+  const race = raceDB.races.find(r => r.date === sel.date && r.venue === sel.venue && r.raceNo === sel.raceNo);
+  if(!race){ showToast('レースデータが見つかりません'); return; }
+
+  // 勝率・オッズ・選手名を自動入力
+  race.boats.forEach((b, i) => {
+    const num = i + 1;
+    if(b.winRate) document.getElementById('wr'+num).value = b.winRate;
+    const nameEl = document.getElementById('name'+num);
+    if(b.name) nameEl.textContent = b.name;
+    else nameEl.textContent = b.grade || '-';
+  });
+  // オッズ
+  if(race.odds){
+    for(let n=1; n<=6; n++){
+      if(race.odds[n] || race.odds[String(n)]){
+        document.getElementById('odds'+n).value = race.odds[n] || race.odds[String(n)];
+      }
+    }
+  }
+  showToast('📊 データ自動入力完了！');
+});
+
+function clearBoatInputs(){
+  for(let i=1;i<=6;i++){
+    document.getElementById('wr'+i).value = '';
+    document.getElementById('odds'+i).value = '';
+    document.getElementById('name'+i).textContent = '-';
+  }
+}
+
+// ===== ページ切替 =====
+let currentPage = 'predict';
+function switchPage(page){
+  currentPage = page;
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach((n,i)=>{
+    n.classList.toggle('active',['predict','result','analysis','sim','history'][i]===page);
+  });
+  if(page==='analysis') renderAnalysis();
+  if(page==='sim') renderSim();
+  if(page==='history') renderHistory();
+}
+
+// ===== トースト =====
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+// ===== AI予測エンジン =====
+let lastPrediction = null;
+
+function predict(){
+  const venue = venueSelect.value;
+  if(!venue){ showToast('会場を選択してください'); return; }
+
+  const boats = [];
+  let hasWinRate = false;
+  for(let i=1;i<=6;i++){
+    const wr = parseFloat(document.getElementById('wr'+i).value)||0;
+    const odds = parseFloat(document.getElementById('odds'+i).value)||0;
+    if(wr>0) hasWinRate=true;
+    boats.push({num:i, winRate:wr, odds:odds});
+  }
+  if(!hasWinRate){ showToast('勝率を入力してください'); return; }
+
+  // 予測確率計算
+  const probs = calculateProbabilities(boats, venue);
+
+  lastPrediction = {
+    venue: venue,
+    venueName: VENUES.find(v=>v.id===venue).name,
+    boats: boats,
+    probs: probs,
+    timestamp: Date.now()
+  };
+
+  renderResult(lastPrediction);
+  switchPage('result');
+  showToast('🎯 予測完了！');
+}
+
+function calculateProbabilities(boats, venue){
+  const correction = loadCorrection();
+  const venueCorr = correction[venue] || {};
+
+  // 基本勝率をベースにした確率計算
+  let rawProbs = boats.map((b,i)=>{
+    let score = b.winRate;
+    if(score <= 0) score = 3.0; // デフォルト
+
+    // コース補正（1コースは有利）
+    const courseBonus = [1.8, 1.1, 1.05, 1.0, 0.95, 0.85];
+    score *= courseBonus[i];
+
+    // 会場別学習補正
+    if(venueCorr[i+1]){
+      score *= (1 + venueCorr[i+1] * 0.1);
+    }
+
+    return score;
+  });
+
+  // 正規化
+  const total = rawProbs.reduce((a,b)=>a+b,0);
+  const probs = rawProbs.map(p=> p/total);
+
+  // 期待値計算
+  const evs = boats.map((b,i)=>{
+    if(b.odds > 0) return probs[i] * b.odds;
+    return null;
+  });
+
+  return probs.map((p,i)=>({
+    boat: i+1,
+    prob: p,
+    ev: evs[i],
+    odds: boats[i].odds
+  }));
+}
+
+// ===== 結果表示 =====
+function renderResult(pred){
+  const sorted = [...pred.probs].sort((a,b)=>b.prob-a.prob);
+  const topPick = sorted[0];
+
+  // 判定
+  let verdict='', verdictClass='';
+  if(topPick.ev !== null){
+    if(topPick.ev >= 1.3){ verdict='🔥 強く買い'; verdictClass='badge-hot'; }
+    else if(topPick.ev >= 1.0){ verdict='⚡ 買い'; verdictClass='badge-buy'; }
+    else{ verdict='❌ 見送り'; verdictClass='badge-skip'; }
+  }
+
+  let html = `
+    <div class="result-card fade-in">
+      <div class="result-rank">AI予測 1着</div>
+      <div class="result-boat">${topPick.boat}号艇</div>
+      <div class="result-prob">的中確率 ${(topPick.prob*100).toFixed(1)}%</div>
+      ${verdict ? `<div style="margin-top:10px"><span class="badge ${verdictClass}">${verdict}</span></div>` : ''}
+      ${topPick.ev !== null ? `<div style="margin-top:6px;font-size:12px;color:var(--text2)">期待値: ${topPick.ev.toFixed(2)}倍 ${topPick.ev>=1?'📈':'📉'}</div>` : ''}
+    </div>
+
+    <div class="card fade-in">
+      <div class="section-title">📊 全艇の確率</div>
+      <div class="prob-list">
+        ${pred.probs.map((p,i)=>`
+          <div class="prob-item">
+            <div class="num" style="color:${boatColors[i]}">${p.boat}</div>
+            <div class="prob-bar-bg">
+              <div class="prob-bar" style="width:${Math.max(p.prob*100*1.5,8)}%">${(p.prob*100).toFixed(1)}%</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    ${topPick.ev !== null ? `
+    <div class="card fade-in">
+      <div class="section-title">💡 期待値ランキング</div>
+      ${sorted.filter(s=>s.ev!==null).map((s,i)=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;${i>0?'border-top:1px solid rgba(255,255,255,.05)':''}">
+          <div style="font-size:12px;color:var(--text2)">${i+1}.</div>
+          <div style="font-weight:700;width:40px">${s.boat}号艇</div>
+          <div style="flex:1;font-size:13px;color:var(--text2)">確率${(s.prob*100).toFixed(1)}% × ${s.odds}倍</div>
+          <div style="font-weight:900;${s.ev>=1?'color:var(--green)':'color:var(--red)'}">EV ${s.ev.toFixed(2)}</div>
+        </div>
+      `).join('')}
+    </div>
+    ` : ''}
+
+    <div class="card fade-in record-section">
+      <div class="section-title">📝 実際の結果を記録</div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:10px">1着の艇番をタップ → モデルが学習します</p>
+      <div class="record-btns" id="recordBtns">
+        ${[1,2,3,4,5,6].map(n=>`
+          <button class="record-btn" onclick="recordResult(${n})" style="color:${boatTextColors[n-1]};background:${boatColors[n-1]};${boatBorders[n-1]?'border:'+boatBorders[n-1]:'border:2px solid transparent'}">${n}</button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('resultContent').innerHTML = html;
+}
+
+// ===== 結果記録 =====
+function recordResult(actual){
+  if(!lastPrediction){ showToast('先に予測してください'); return; }
+
+  const sorted = [...lastPrediction.probs].sort((a,b)=>b.prob-a.prob);
+  const topPick = sorted[0].boat;
+  const hit = topPick === actual;
+
+  // 履歴保存
+  const history = loadHistory();
+  const entry = {
+    id: Date.now(),
+    venue: lastPrediction.venue,
+    venueName: lastPrediction.venueName,
+    boats: lastPrediction.boats,
+    probs: lastPrediction.probs,
+    topPick: topPick,
+    topProb: sorted[0].prob,
+    topOdds: sorted[0].odds,
+    topEV: sorted[0].ev,
+    actual: actual,
+    hit: hit,
+    timestamp: lastPrediction.timestamp
+  };
+  history.unshift(entry);
+  saveHistory(history);
+
+  // 学習補正
+  updateCorrection(lastPrediction.venue, topPick, actual, lastPrediction.probs);
+
+  // ボタンの見た目更新
+  document.querySelectorAll('.record-btn').forEach(btn=>{
+    btn.style.opacity='0.4';
+    btn.style.pointerEvents='none';
+  });
+  event.target.style.opacity='1';
+  event.target.style.border='3px solid var(--accent)';
+
+  // 結果フィードバック表示
+  const feedbackEl = document.createElement('div');
+  feedbackEl.className = 'card fade-in';
+  feedbackEl.style.marginTop='12px';
+  feedbackEl.innerHTML = `
+    <div style="text-align:center;padding:8px">
+      <span class="badge ${hit?'badge-hit':'badge-miss'}">${hit?'✅ 的中！':'❌ ハズレ'}</span>
+      <div style="margin-top:8px;font-size:13px;color:var(--text2)">
+        予測: ${topPick}号艇 → 結果: ${actual}号艇
+      </div>
+      <div style="margin-top:4px;font-size:12px;color:var(--accent)">
+        📈 学習データを更新しました
+      </div>
+    </div>
+  `;
+  document.querySelector('.record-section').appendChild(feedbackEl);
+
+  showToast(hit ? '🎉 的中！学習データ更新' : '📈 学習データ更新');
+  lastPrediction = null;
+}
+
+// ===== 学習補正 =====
+function updateCorrection(venue, predicted, actual, probs){
+  const corr = loadCorrection();
+  if(!corr[venue]) corr[venue] = {};
+
+  // 外れた場合：予測した艇を少し下げ、実際の1着を上げる
+  if(predicted !== actual){
+    corr[venue][predicted] = (corr[venue][predicted]||0) - 0.15;
+    corr[venue][actual] = (corr[venue][actual]||0) + 0.2;
+  } else {
+    // 当たった場合：その艇を少し上げる
+    corr[venue][actual] = (corr[venue][actual]||0) + 0.05;
+  }
+
+  // 補正値の上下限
+  for(let k in corr[venue]){
+    corr[venue][k] = Math.max(-2, Math.min(2, corr[venue][k]));
+  }
+
+  saveCorrection(corr);
+}
+
+// ===== 分析ページ =====
+function renderAnalysis(){
+  const history = loadHistory();
+  const el = document.getElementById('analysisContent');
+
+  if(history.length === 0){
+    el.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">🔬</div>
+        <p>まだデータがありません<br>予測してレース結果を記録すると<br>分析が表示されます</p>
+      </div>
+    `;
+    return;
+  }
+
+  const hits = history.filter(h=>h.hit).length;
+  const rate = (hits/history.length*100);
+  const recent10 = history.slice(0,10);
+  const recentHits = recent10.filter(h=>h.hit).length;
+
+  // コース別的中率
+  const courseStats = {};
+  history.forEach(h=>{
+    if(!courseStats[h.topPick]) courseStats[h.topPick]={total:0,hit:0};
+    courseStats[h.topPick].total++;
+    if(h.hit) courseStats[h.topPick].hit++;
+  });
+
+  // 会場別フィルター
+  const venues = [...new Set(history.map(h=>h.venueName))];
+
+  let html = `
+    <div class="stat-grid fade-in">
+      <div class="stat-box">
+        <div class="stat-val">${rate.toFixed(1)}%</div>
+        <div class="stat-label">通算的中率</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val">${history.length}</div>
+        <div class="stat-label">予測回数</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val">${hits}</div>
+        <div class="stat-label">的中数</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val">${(recentHits/Math.max(recent10.length,1)*100).toFixed(0)}%</div>
+        <div class="stat-label">直近10の的中率</div>
+      </div>
+    </div>
+
+    <div class="card fade-in">
+      <div class="section-title">📊 コース別的中率</div>
+      <div class="prob-list">
+        ${[1,2,3,4,5,6].map(c=>{
+          const s = courseStats[c]||{total:0,hit:0};
+          const r = s.total>0 ? (s.hit/s.total*100) : 0;
+          return `
+            <div class="prob-item">
+              <div class="num" style="color:${boatColors[c-1]}">${c}</div>
+              <div class="prob-bar-bg">
+                <div class="prob-bar" style="width:${Math.max(r*1.2,4)}%">${r.toFixed(0)}% (${s.hit}/${s.total})</div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card fade-in">
+      <div class="section-title">📈 精度トレンド（5件移動平均）</div>
+      <div id="trendChart" style="padding:8px 0">
+        ${renderTrendBars(history)}
+      </div>
+    </div>
+
+    <div class="card fade-in">
+      <div class="section-title">🔎 予測 vs 結果</div>
+      <div class="filter-row">
+        <div class="filter-chip active" onclick="filterAnalysis('')">全て</div>
+        ${venues.map(v=>`<div class="filter-chip" onclick="filterAnalysis('${v}')">${v}</div>`).join('')}
+      </div>
+      <div id="analysisTable">
+        ${renderAnalysisTable(history)}
+      </div>
+    </div>
+  `;
+
+  el.innerHTML = html;
+}
+
+function renderTrendBars(history){
+  if(history.length < 5) return '<p style="font-size:12px;color:var(--text2);text-align:center">5件以上データが必要です</p>';
+
+  const reversed = [...history].reverse();
+  let bars = '';
+  for(let i=0; i<=reversed.length-5; i++){
+    const chunk = reversed.slice(i, i+5);
+    const r = (chunk.filter(c=>c.hit).length / 5 * 100);
+    const color = r >= 60 ? 'var(--green)' : r >= 40 ? 'var(--accent)' : r >= 20 ? 'var(--orange)' : 'var(--red)';
+    bars += `<div style="display:inline-block;width:${Math.max(100/(reversed.length-4)-1,4)}%;height:${Math.max(r*1.2,8)}px;background:${color};border-radius:3px;margin-right:2px;vertical-align:bottom" title="${r.toFixed(0)}%"></div>`;
+  }
+  return `<div style="height:80px;display:flex;align-items:flex-end;overflow-x:auto">${bars}</div>`;
+}
+
+function renderAnalysisTable(history, filter=''){
+  const filtered = filter ? history.filter(h=>h.venueName===filter) : history;
+  return filtered.slice(0,30).map(h=>{
+    const date = new Date(h.timestamp);
+    const dateStr = `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}`;
+    return `
+      <div class="history-item">
+        <div class="hi-venue">${h.venueName}<br><span style="font-size:10px">${dateStr}</span></div>
+        <div class="hi-pred">予測:${h.topPick}号艇 → 結果:${h.actual}号艇</div>
+        <div class="hi-result">
+          <span class="badge ${h.hit?'badge-hit':'badge-miss'}" style="font-size:11px">${h.hit?'的中':'ハズレ'}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function filterAnalysis(venue){
+  document.querySelectorAll('#page-analysis .filter-chip').forEach(c=>c.classList.remove('active'));
+  event.target.classList.add('active');
+  const history = loadHistory();
+  document.getElementById('analysisTable').innerHTML = renderAnalysisTable(history, venue);
+}
+
+// ===== シミュレーション =====
+function renderSim(){
+  const history = loadHistory();
+  const el = document.getElementById('simContent');
+
+  if(history.length < 3){
+    el.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">💰</div>
+        <p>3件以上のデータが必要です<br>予測して結果を記録してください</p>
+      </div>
+    `;
+    return;
+  }
+
+  const betAmount = parseInt(localStorage.getItem('sim_bet')||'1000');
+  
+  const timestamps = history.map(h=>h.timestamp);
+  const minDate = new Date(Math.min(...timestamps));
+  const maxDate = new Date(Math.max(...timestamps));
+
+  html = `
+    <div class="card fade-in">
+      <div class="section-title">⚙️ 設定</div>
+      <div class="sim-control">
+        <label>1レースの賭け金</label>
+        <div class="sim-val" id="betDisplay">¥${betAmount.toLocaleString()}</div>
+        <input type="range" min="100" max="10000" step="100" value="${betAmount}" 
+               oninput="updateBet(this.value)" id="betSlider">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2)">
+          <span>¥100</span><span>¥10,000</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="simResults">${renderSimResults(history, betAmount)}</div>
+  `;
+
+  el.innerHTML = html;
+}
+
+function updateBet(val){
+  localStorage.setItem('sim_bet',val);
+  document.getElementById('betDisplay').textContent = '¥'+parseInt(val).toLocaleString();
+  const history = loadHistory();
+  document.getElementById('simResults').innerHTML = renderSimResults(history, parseInt(val));
+}
+
+function renderSimResults(history, bet){
+  // 3つの戦略
+  const strategies = [
+    { name:'全レース購入', filter: h=>true, emoji:'🎰' },
+    { name:'期待値プラスのみ', filter: h=>h.topEV!==null && h.topEV>=1.0, emoji:'⚡' },
+    { name:'強推奨のみ (EV+30%)', filter: h=>h.topEV!==null && h.topEV>=1.3, emoji:'🔥' }
+  ];
+
+  let html = '<div class="strategy-cards">';
+
+  let bestProfit = -Infinity;
+  let bestIdx = 0;
+
+  strategies.forEach((strat,si)=>{
+    const targets = history.filter(strat.filter);
+    const races = targets.length;
+    const totalBet = races * bet;
+    const hits = targets.filter(t=>t.hit);
+    let totalReturn = 0;
+    hits.forEach(h=>{
+      totalReturn += bet * (h.topOdds || 1);
+    });
+    const profit = totalReturn - totalBet;
+    const roi = totalBet > 0 ? (totalReturn / totalBet * 100) : 0;
+    const hitRate = races > 0 ? (hits.length/races*100) : 0;
+
+    if(profit > bestProfit){ bestProfit=profit; bestIdx=si; }
+
+    html += `
+      <div class="strat-card" data-idx="${si}" style="background:var(--card)">
+        <div class="strat-name">${strat.emoji} ${strat.name}</div>
+        <div class="strat-stats">
+          <span>📊 ${races}レース</span>
+          <span>🎯 的中${hitRate.toFixed(0)}%</span>
+          <span>💰 回収率${roi.toFixed(0)}%</span>
+        </div>
+        <div class="strat-profit ${profit>=0?'plus':'minus'}">
+          ${profit>=0?'+':''}¥${profit.toLocaleString()}
+        </div>
+      </div>
+    `;
+  });
+
+  html += '</div>';
+
+  // ベスト戦略をハイライト
+  setTimeout(()=>{
+    const cards = document.querySelectorAll('.strat-card');
+    cards.forEach((c,i)=>{ if(i===bestIdx) c.classList.add('best') });
+  },100);
+
+  // 累計収支グラフ（テキストベース）
+  const reversed = [...history].reverse();
+  let cumProfit = 0;
+  const profitLine = [];
+  reversed.forEach(h=>{
+    if(h.hit && h.topOdds){
+      cumProfit += bet * h.topOdds - bet;
+    } else {
+      cumProfit -= bet;
+    }
+    profitLine.push(cumProfit);
+  });
+
+  if(profitLine.length > 0){
+    const max = Math.max(...profitLine.map(Math.abs), 1);
+    html += `
+      <div class="card fade-in" style="margin-top:12px">
+        <div class="section-title">📈 累計収支</div>
+        <div style="display:flex;flex-direction:column;gap:2px;padding:8px 0">
+          ${profitLine.map((p,i)=>{
+            const pct = Math.abs(p)/max*45;
+            const isPlus = p>=0;
+            return `<div style="display:flex;align-items:center;height:4px">
+              <div style="width:50%;display:flex;justify-content:flex-end">
+                ${!isPlus?`<div style="width:${pct}%;height:4px;background:var(--red);border-radius:2px"></div>`:''}
+              </div>
+              <div style="width:2px;height:8px;background:rgba(255,255,255,.1)"></div>
+              <div style="width:50%">
+                ${isPlus?`<div style="width:${pct}%;height:4px;background:var(--green);border-radius:2px"></div>`:''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2)">
+          <span style="color:var(--red)">-¥${Math.abs(Math.min(...profitLine)).toLocaleString()}</span>
+          <span>0</span>
+          <span style="color:var(--green)">+¥${Math.max(...profitLine,0).toLocaleString()}</span>
+        </div>
+        <div style="text-align:center;margin-top:8px;font-size:14px;font-weight:900;${cumProfit>=0?'color:var(--green)':'color:var(--red)'}">
+          最終: ${cumProfit>=0?'+':''}¥${cumProfit.toLocaleString()}
+        </div>
+      </div>
+    `;
+  }
+
+  return html;
+}
+
+// ===== 履歴ページ =====
+function renderHistory(){
+  const history = loadHistory();
+  const el = document.getElementById('historyContent');
+
+  if(history.length === 0){
+    el.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📋</div>
+        <p>まだ履歴がありません<br>予測して結果を記録すると<br>ここに表示されます</p>
+      </div>
+    `;
+    return;
+  }
+
+  const hits = history.filter(h=>h.hit).length;
+  const correction = loadCorrection();
+  const corrCount = Object.keys(correction).length;
+
+  let html = `
+    <div class="stat-grid fade-in">
+      <div class="stat-box">
+        <div class="stat-val">${history.length}</div>
+        <div class="stat-label">総予測数</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val">${(hits/history.length*100).toFixed(1)}%</div>
+        <div class="stat-label">的中率</div>
+      </div>
+    </div>
+
+    <div class="card fade-in">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div class="section-title" style="margin:0">🧠 学習状態</div>
+        <span style="font-size:12px;color:var(--accent)">${corrCount}会場学習済</span>
+      </div>
+      <p style="font-size:12px;color:var(--text2);margin-top:6px;line-height:1.6">
+        ${history.length < 5 ? '⚡ データ収集中… 5件以上で補正が効き始めます' :
+          history.length < 20 ? '📈 学習進行中 まだまだデータが必要です' :
+          history.length < 50 ? '🔥 良い感じ！補正が効いてきています' :
+          '🏆 十分なデータ量！精度が安定してきています'}
+      </p>
+    </div>
+
+    <div class="card fade-in">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="section-title" style="margin:0">📋 全履歴</div>
+        <button class="delete-btn" onclick="clearAllHistory()" title="全削除">🗑️</button>
+      </div>
+      ${history.map((h,idx)=>{
+        const date = new Date(h.timestamp);
+        const dateStr = `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}`;
+        return `
+          <div class="history-item">
+            <div class="hi-venue">${h.venueName}<br><span style="font-size:10px">${dateStr}</span></div>
+            <div class="hi-pred" style="flex:1">
+              <div style="font-size:13px">予測:${h.topPick}号艇 → ${h.actual}号艇</div>
+              <div style="font-size:11px;color:var(--text2)">
+                確率${(h.topProb*100).toFixed(1)}%${h.topOdds?` / ${h.topOdds}倍`:''}
+              </div>
+            </div>
+            <span class="badge ${h.hit?'badge-hit':'badge-miss'}" style="font-size:11px;padding:4px 10px">
+              ${h.hit?'✅':'❌'}
+            </span>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <div class="card fade-in">
+      <div class="section-title">📤 データ管理</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-secondary" onclick="exportData()" style="flex:1;font-size:13px;padding:10px">
+          📥 エクスポート
+        </button>
+        <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()" style="flex:1;font-size:13px;padding:10px">
+          📤 インポート
+        </button>
+      </div>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+      <p style="font-size:11px;color:var(--text2);margin-top:8px;text-align:center">
+        JSONファイルで保存・復元できます<br>友達にデータを渡すこともOK
+      </p>
+    </div>
+  `;
+
+  el.innerHTML = html;
+}
+
+// ===== データ管理 =====
+function exportData(){
+  const data = {
+    history: loadHistory(),
+    correction: loadCorrection(),
+    exportDate: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `boatrace_data_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('📥 データをエクスポートしました');
+}
+
+function importData(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const data = JSON.parse(e.target.result);
+      if(data.history){
+        const existing = loadHistory();
+        const merged = [...data.history, ...existing];
+        // 重複除去
+        const unique = merged.filter((h,i,a)=>a.findIndex(x=>x.id===h.id)===i);
+        unique.sort((a,b)=>b.timestamp-a.timestamp);
+        saveHistory(unique);
+      }
+      if(data.correction){
+        const existing = loadCorrection();
+        const merged = {...existing, ...data.correction};
+        saveCorrection(merged);
+      }
+      showToast('📤 データをインポートしました');
+      renderHistory();
+    }catch(err){
+      showToast('❌ ファイルの読み込みに失敗');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function clearAllHistory(){
+  if(!confirm('全履歴を削除しますか？')) return;
+  saveHistory([]);
+  saveCorrection({});
+  renderHistory();
+  showToast('🗑️ 全データを削除しました');
+}
+
+// ===== 同期状態表示 =====
+function updateSyncStatus(){
+  const h = loadHistory();
+  const dbCount = raceDB ? raceDB.totalRaces : 0;
+  document.getElementById('syncStatus').textContent = dbCount > 0 
+    ? `📊 DB:${dbCount}件 / 💾 ${h.length}件`
+    : `💾 ${h.length}件保存`;
+}
+updateSyncStatus();
+setInterval(updateSyncStatus, 30000);
+
+// ===== PWA対応 =====
+if('serviceWorker' in navigator){
+  // 将来のPWA対応用
+}
+</script>
+</body>
+</html>
