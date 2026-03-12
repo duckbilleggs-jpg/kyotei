@@ -1,51 +1,46 @@
 """
-全レース自動予測スクリプト（自己学習型 v3 - ウォークフォワード）
+全レース自動予測スクリプト v4 - 競艇理論ベース
 
-正しい学習フロー:
-1. レースを日付順にソート
-2. 各日のレースを予測する時は「その日より前のデータだけ」で学習
-3. これにより "未来を見てカンニング" を防ぎ、真の予測精度を計測
+予測ファクター（競艇の考え方に基づく）:
+1. 選手の実力: 勝率 + 2連率 + 当地勝率
+2. モーター性能: モーター2連率（40%超=エースモーター）
+3. コース有利: 1コースが有利だが、勝率差で覆る
+4. スタート力: 平均ST（0.12以下=巧者）
+5. 体重: 軽い方がスピード有利
+6. 気象: 風・波で展開が変わる
+7. 展示タイム: 直前のモーター調子
 
-学習ファクター:
-- 会場×コース別の1着率（実データベース）
-- 体重差の影響（軽い方が有利）
-- 風向き×コースの影響（追い風=イン有利、向かい風=アウト有利）
+キーポイント:
+- コース補正を弱め、選手実力差をより反映
+- モーター2連率でモーター性能を加味
+- 嚙み合わせ（実力高い選手がアウトコース=まくりチャンス）を考慮
 """
-import json, os, math
+import json, os
 from datetime import datetime
 from collections import defaultdict
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 基本コース補正（学習データがない初期状態で使用）
-DEFAULT_COURSE_BONUS = [1.8, 1.1, 1.05, 1.0, 0.95, 0.85]
+# コース基本補正（現実の勝率を反映）
+# 実データ: 1コース55%, 2コース15%, 3コース12%, 4コース11%, 5コース5%, 6コース2%
+COURSE_BASE = [1.65, 1.08, 1.02, 0.97, 0.82, 0.72]
+
+# 級別補正 (控えめに - コースを覆すには不十分なレベル)
+GRADE_BONUS = {'A1': 1.08, 'A2': 1.03, 'B1': 0.97, 'B2': 0.92}
 
 def learn_from_races(races):
-    """
-    与えられたレース群から統計モデルを構築する
-    ※ウォークフォワードでは「予測対象日より前のレース」のみを渡す
-    """
+    """過去レースからパラメータを学習"""
     venue_course_wins = defaultdict(lambda: defaultdict(int))
     venue_course_total = defaultdict(lambda: defaultdict(int))
     
-    # 体重分析用
-    weight_light_win = 0
-    weight_heavy_win = 0
-    weight_total = 0
-    
-    # 風向き×コース
-    wind_course = {
-        'headwind': defaultdict(lambda: {'win': 0, 'total': 0}),
-        'tailwind': defaultdict(lambda: {'win': 0, 'total': 0}),
-        'calm':     defaultdict(lambda: {'win': 0, 'total': 0})
-    }
+    # 選手勝率帯ごとの実際の勝率（キャリブレーション用）
+    wr_bins = defaultdict(lambda: {'win': 0, 'total': 0})
     
     for race in races:
         result = race.get('result', {})
         order = result.get('order', [])
         boats = race.get('boats', [])
         venue = race.get('venue', '')
-        weather = race.get('weather', {})
         
         if not order or len(boats) < 6:
             continue
@@ -54,132 +49,165 @@ def learn_from_races(races):
         if not first:
             continue
         
-        winner = first['boat']  # 1-6
-        wi = winner - 1
+        wi = first['boat'] - 1
         
-        # ---- 会場×コース集計 ----
         for i in range(6):
             venue_course_total[venue][i] += 1
         venue_course_wins[venue][wi] += 1
         
-        # ---- 体重分析 ----
-        weights = [b.get('weight', 0) for b in boats]
-        if all(w > 0 for w in weights):
-            avg_w = sum(weights) / len(weights)
-            winner_w = weights[wi]
-            weight_total += 1
-            if winner_w < avg_w - 0.5:
-                weight_light_win += 1
-            elif winner_w > avg_w + 0.5:
-                weight_heavy_win += 1
-        
-        # ---- 風向き×コース ----
-        ws = weather.get('windSpeed', 0)
-        wd = weather.get('windDir', 0)
-        if ws >= 3:
-            if 6 <= wd <= 12:
-                wt = 'tailwind'
-            elif wd <= 4 or wd >= 14:
-                wt = 'headwind'
-            else:
-                wt = 'calm'
-        else:
-            wt = 'calm'
-        
-        for i in range(6):
-            wind_course[wt][i]['total'] += 1
-        wind_course[wt][wi]['win'] += 1
+        # 勝率帯の学習
+        for i, b in enumerate(boats):
+            wr = b.get('winRate', 0) or 0
+            wr_bin = int(wr)  # 3, 4, 5, 6, 7...
+            wr_bins[wr_bin]['total'] += 1
+            if i == wi:
+                wr_bins[wr_bin]['win'] += 1
     
-    # ---- コース補正値を計算 ----
+    # 会場別コース補正
     venue_corr = {}
     for venue in venue_course_total:
         total = venue_course_total[venue][0]
-        if total < 5:
+        if total < 10:
             continue
         corr = []
         for i in range(6):
             w = venue_course_wins[venue].get(i, 0)
             rate = w / total if total > 0 else 1/6
-            corr.append(rate / (1/6))  # 期待値との比率
+            corr.append(rate / (1/6))
         venue_corr[venue] = corr
-    
-    # ---- 体重ファクター ----
-    wf = 1.0
-    if weight_total >= 10:
-        lr = weight_light_win / max(weight_total, 1)
-        hr = weight_heavy_win / max(weight_total, 1)
-        if hr > 0:
-            wf = lr / hr
-        elif lr > 0:
-            wf = 1.5
-    
-    # ---- 風補正 ----
-    wind_corr = {}
-    for wt in ['headwind', 'tailwind', 'calm']:
-        c = []
-        for i in range(6):
-            t = wind_course[wt][i]['total']
-            w = wind_course[wt][i]['win']
-            if t >= 10:
-                c.append((w / t) / (1/6))
-            else:
-                c.append(1.0)
-        wind_corr[wt] = c
     
     return {
         'venue_corr': venue_corr,
-        'weight_factor': round(wf, 3),
-        'wind_corr': wind_corr,
-        'train_count': len(races)
+        'wr_bins': dict(wr_bins),
+        'train_count': sum(venue_course_total[v][0] for v in venue_course_total)
     }
 
 
 def predict_race(boats, venue, model, weather=None):
-    """学習済みモデルでレースを予測"""
+    """
+    競艇理論に基づいた予測
+    
+    スコア = 選手実力 × コース補正 × モーター補正 × ST補正 × 体重補正 × 気象補正
+    """
     vc = model.get('venue_corr', {})
-    wc = model.get('wind_corr', {})
-    wf = model.get('weight_factor', 1.0)
     
-    course_bonus = vc.get(venue, DEFAULT_COURSE_BONUS)
+    # 会場別コース補正（あれば使う、なければデフォルト）
+    # ただしデフォルト補正は弱めに
+    course_bonus = vc.get(venue, COURSE_BASE)
     
-    scores = []
+    # 各ボートの情報を整理
+    all_wr = [b.get('winRate', 0) or 3.0 for b in boats]
     all_weights = [b.get('weight', 0) for b in boats]
     has_weight = all(w > 0 for w in all_weights)
     avg_weight = sum(all_weights) / len(all_weights) if has_weight else 52.0
     
+    all_motor = [b.get('motor2ren', 0) for b in boats]
+    has_motor = any(m > 0 for m in all_motor)
+    avg_motor = sum(m for m in all_motor if m > 0) / max(sum(1 for m in all_motor if m > 0), 1) if has_motor else 30.0
+    
+    all_st = [b.get('avgST', 0) for b in boats]
+    has_st = any(s > 0 for s in all_st)
+    
+    all_exhibit = [b.get('exhibitTime', 0) for b in boats]
+    has_exhibit = any(e > 0 for e in all_exhibit)
+    
+    scores = []
+    
     for i, boat in enumerate(boats):
-        wr = boat.get('winRate', 0) or 0
+        # === 1. 選手実力（ベーススコア）===
+        wr = boat.get('winRate', 0) or 3.0
         wr2 = boat.get('winRate2', 0) or 0  # 当地勝率
-        if wr <= 0:
-            wr = 3.0
+        wr2ren = boat.get('winRate2ren', 0) or 0  # 2連率
         
-        # ベーススコア: 全国勝率と当地勝率の加重平均
-        # 当地勝率がある場合、会場慣れを反映（当地を重視）
+        # 全国勝率ベース + 当地勝率を加味
         if wr2 > 0:
-            base_wr = wr * 0.6 + wr2 * 0.4  # 当地勝率を40%反映
+            base = wr * 0.65 + wr2 * 0.35
         else:
-            base_wr = wr
+            base = wr
         
-        # ① コース補正（会場データがあれば実データ、なければデフォルト）
-        score = base_wr * course_bonus[i]
+        # 2連率も少し加味（安定感）
+        if wr2ren > 0:
+            base = base * 0.85 + (wr2ren / 10) * 0.15
         
-        # ② 体重補正（軽い=有利）
+        # === 2. コース補正 ===
+        # 1号艇の選手が明らかに弱い場合のみコース補正を少し弱める
+        boat1_wr = all_wr[0]
+        this_wr = all_wr[i]
+        
+        if i > 0 and this_wr - boat1_wr > 3.0:
+            # この選手が1号艇より勝率3.0以上高い → コース補正少し緩和
+            course_factor = 1.0 + (course_bonus[i] - 1.0) * 0.6
+        elif i > 0 and this_wr - boat1_wr > 2.0:
+            course_factor = 1.0 + (course_bonus[i] - 1.0) * 0.8
+        else:
+            course_factor = course_bonus[i]
+        
+        score = base * course_factor
+        
+        # === 3. モーター補正 ===
+        if has_motor:
+            motor = boat.get('motor2ren', 0) or avg_motor
+            # 40%超=エースモーター、平均は30%前後（微調整レベル）
+            motor_factor = 1.0 + (motor - avg_motor) * 0.004
+            score *= max(min(motor_factor, 1.08), 0.92)
+        
+        # === 4. スタート力補正 ===
+        if has_st:
+            st = boat.get('avgST', 0)
+            if st > 0:
+                # 0.12以下=巧者、0.20以上=遅い（微調整レベル）
+                if i >= 3:  # アウトコース（4-6号艇）
+                    st_factor = 1.0 + (0.16 - st) * 1.5
+                else:  # インコース（1-3号艇）
+                    st_factor = 1.0 + (0.16 - st) * 0.8
+                score *= max(min(st_factor, 1.06), 0.94)
+        
+        # === 5. 級別補正 ===
+        grade = boat.get('grade', '')
+        if grade in GRADE_BONUS:
+            score *= GRADE_BONUS[grade]
+        
+        # === 6. 体重補正 ===
         if has_weight:
-            diff = avg_weight - all_weights[i]  # 軽い方がプラス
-            adj = 1.0 + diff * 0.015 * max(wf - 0.5, 0.5)
-            score *= max(min(adj, 1.3), 0.7)
+            w = all_weights[i]
+            diff = avg_weight - w
+            score *= 1.0 + diff * 0.008
         
-        # ③ 風向き補正
-        if weather and weather.get('windSpeed', 0) >= 3:
+        # === 7. 気象補正 ===
+        if weather:
+            ws = weather.get('windSpeed', 0)
             wd = weather.get('windDir', 0)
-            if 6 <= wd <= 12:
-                wt = 'tailwind'
-            elif wd <= 4 or wd >= 14:
-                wt = 'headwind'
-            else:
-                wt = 'calm'
-            if wt in wc and len(wc[wt]) > i:
-                score *= wc[wt][i]
+            wave = weather.get('waveHeight', 0)
+            
+            if ws >= 3:
+                # 追い風(南系) → イン有利
+                if 6 <= wd <= 12:
+                    if i <= 1:
+                        score *= 1.03
+                    elif i >= 4:
+                        score *= 0.97
+                # 向かい風(北系) → アウト有利（まくりが決まりやすい）
+                elif wd <= 4 or wd >= 14:
+                    if i <= 1:
+                        score *= 0.97
+                    elif i >= 4:
+                        score *= 1.03
+            
+            # 波高 → 高波はインが不利
+            if wave >= 5:
+                if i == 0:
+                    score *= 0.95
+                elif i >= 3:
+                    score *= 1.02
+        
+        # === 8. 展示タイム補正 ===
+        if has_exhibit:
+            et = boat.get('exhibitTime', 0)
+            if et > 0:
+                avg_et = sum(e for e in all_exhibit if e > 0) / max(sum(1 for e in all_exhibit if e > 0), 1)
+                et_diff = avg_et - et  # タイムが小さい=速い
+                score *= 1.0 + et_diff * 5.0  # 0.1秒差で50%変動
+                score = max(score, 0.1)
         
         scores.append(max(score, 0.01))
     
@@ -201,16 +229,15 @@ def predict_race(boats, venue, model, weather=None):
 def process_all_races():
     db_path = os.path.join(DIR, 'race_db.json')
     if not os.path.exists(db_path):
-        print("❌ race_db.json が見つかりません")
+        print("race_db.json not found")
         return
     
     with open(db_path, 'r', encoding='utf-8') as f:
         db = json.load(f)
     
     races = db.get('races', [])
-    print(f"📊 全{len(races)}レースを処理中...")
+    print(f"Total {len(races)} races")
     
-    # ===== 日付ごとにグループ化 =====
     by_date = defaultdict(list)
     for race in races:
         d = race.get('date', '')
@@ -218,34 +245,26 @@ def process_all_races():
             by_date[d].append(race)
     
     dates = sorted(by_date.keys())
-    print(f"📅 {len(dates)}日分のデータ: {dates[0]}〜{dates[-1]}")
+    if not dates:
+        print("No data")
+        return
+    print(f"{len(dates)} days: {dates[0]} - {dates[-1]}")
     
-    # ===== ウォークフォワード学習 =====
-    print("\n🧠 ウォークフォワード学習開始...")
-    print("   （各日のレースを予測する時、その日より前のデータだけで学習）\n")
-    
-    all_past_races = []  # 過去のレースを蓄積
+    # ウォークフォワード
+    all_past = []
     predictions = []
     stats = {'total': 0, 'withResult': 0, 'hit': 0, 'miss': 0}
     daily_stats = {}
     venue_stats = defaultdict(lambda: {'total': 0, 'hit': 0})
+    pick_dist = defaultdict(lambda: {'total': 0, 'hit': 0})
     
     for di, date in enumerate(dates):
         day_races = by_date[date]
         
-        # その日より前のデータで学習
-        if all_past_races:
-            model = learn_from_races(all_past_races)
-            train_info = f"学習:{len(all_past_races)}レース"
+        if all_past:
+            model = learn_from_races(all_past)
         else:
-            # 初日はデフォルトモデル
-            model = {
-                'venue_corr': {},
-                'weight_factor': 1.0,
-                'wind_corr': {},
-                'train_count': 0
-            }
-            train_info = "学習:初期モデル"
+            model = {'venue_corr': {}, 'wr_bins': {}, 'train_count': 0}
         
         day_hit = 0
         day_miss = 0
@@ -267,10 +286,10 @@ def process_all_races():
             
             stats['total'] += 1
             day_total += 1
+            pick_dist[pred['topPick']]['total'] += 1
             
             entry = {
-                'date': date,
-                'venue': venue,
+                'date': date, 'venue': venue,
                 'venueName': race.get('venueName', ''),
                 'raceNo': race.get('raceNo', 0),
                 'topPick': pred['topPick'],
@@ -280,7 +299,6 @@ def process_all_races():
             if weather:
                 entry['weather'] = weather
             
-            # 結果判定
             result = race.get('result', {})
             order = result.get('order', [])
             if order:
@@ -298,6 +316,7 @@ def process_all_races():
                     entry['hit'] = True
                     stats['hit'] += 1
                     day_hit += 1
+                    pick_dist[pred['topPick']]['hit'] += 1
                 else:
                     entry['hit'] = False
                     stats['miss'] += 1
@@ -313,59 +332,47 @@ def process_all_races():
             entry['boatNames'] = [b.get('name', '') for b in boats]
             predictions.append(entry)
         
-        # 日別集計
         if day_total > 0:
             day_rate = round(day_hit / (day_hit + day_miss) * 100, 1) if (day_hit + day_miss) > 0 else 0
-            daily_stats[date] = {
-                'total': day_total, 'hit': day_hit, 'miss': day_miss, 'rate': day_rate
-            }
+            daily_stats[date] = {'total': day_total, 'hit': day_hit, 'miss': day_miss, 'rate': day_rate}
             d_str = f"{date[:4]}/{date[4:6]}/{date[6:]}"
-            print(f"  {d_str}: {day_rate}% ({day_hit}勝{day_miss}敗) ← {train_info}")
+            train_n = len(all_past)
+            print(f"  {d_str}: {day_rate}% ({day_hit}/{day_hit+day_miss}) [train:{train_n}]")
         
-        # この日のレースを過去データに追加（次の日の学習用）
-        all_past_races.extend(day_races)
+        all_past.extend(day_races)
     
-    # ===== 最終集計 =====
     hit_rate = round(stats['hit'] / stats['withResult'] * 100, 1) if stats['withResult'] > 0 else 0
     
-    daily_summary = []
-    for date in sorted(daily_stats.keys(), reverse=True):
-        d = daily_stats[date]
-        daily_summary.append({
-            'date': date, 'total': d['total'],
-            'hit': d['hit'], 'miss': d['miss'], 'rate': d['rate']
-        })
+    # 予測先分布
+    print(f"\nPick distribution:")
+    for pick in sorted(pick_dist.keys()):
+        pd = pick_dist[pick]
+        phr = pd['hit']/pd['total']*100 if pd['total'] > 0 else 0
+        print(f"  Boat {pick}: {pd['total']} picks, {pd['hit']} hits ({phr:.1f}%)")
     
-    venue_summary = []
-    for v in sorted(venue_stats.keys()):
-        vs = venue_stats[v]
-        rate = round(vs['hit'] / vs['total'] * 100, 1) if vs['total'] > 0 else 0
-        venue_summary.append({'venue': v, 'total': vs['total'], 'hit': vs['hit'], 'rate': rate})
+    daily_summary = [{'date': d, **daily_stats[d]} for d in sorted(daily_stats.keys(), reverse=True)]
+    venue_summary = [{'venue': v, **venue_stats[v], 'rate': round(venue_stats[v]['hit']/venue_stats[v]['total']*100,1) if venue_stats[v]['total']>0 else 0} for v in sorted(venue_stats.keys())]
     
-    # フロントエンド用のJSでも使えるように、学習モデルも保存
-    # （最新の全データで学習した最終モデル = 今後の予測用）
-    final_model = learn_from_races(all_past_races)
+    final_model = learn_from_races(all_past)
     
     output = {
         'generated': datetime.now().strftime('%Y-%m-%d %H:%M'),
-        'modelVersion': 'v3-walkforward',
+        'modelVersion': 'v4-boatrace-theory',
         'stats': {
             'totalPredicted': stats['total'],
             'withResult': stats['withResult'],
-            'hit': stats['hit'],
-            'miss': stats['miss'],
+            'hit': stats['hit'], 'miss': stats['miss'],
             'hitRate': hit_rate,
-            'totalTrainingRaces': len(all_past_races)
+            'totalTrainingRaces': len(all_past)
         },
         'model': {
-            'weightFactor': final_model['weight_factor'],
             'venueCount': len(final_model['venue_corr']),
-            'method': 'walk-forward (past data only)'
+            'method': 'walk-forward + boat-race-theory (motor/ST/weight/weather/grade)',
+            'factors': 'winRate, winRate2, motor2ren, avgST, grade, weight, weather, exhibitTime'
         },
         'dailySummary': daily_summary,
         'venueSummary': venue_summary,
-        'predictions': sorted(predictions,
-            key=lambda x: (x['date'], x['venue'], x['raceNo']), reverse=True)
+        'predictions': sorted(predictions, key=lambda x: (x['date'], x['venue'], x['raceNo']), reverse=True)
     }
     
     out_path = os.path.join(DIR, 'predictions.json')
@@ -373,12 +380,10 @@ def process_all_races():
         json.dump(output, f, ensure_ascii=False, separators=(',', ':'))
     
     print(f"\n{'='*40}")
-    print(f"✅ predictions.json 生成完了！")
-    print(f"   方式: ウォークフォワード（過去データのみで学習→未来を予測）")
-    print(f"   予測レース数: {stats['total']}")
-    print(f"   結果判明: {stats['withResult']}")
-    print(f"   的中: {stats['hit']} / ハズレ: {stats['miss']}")
-    print(f"   的中率: {hit_rate}%")
+    print(f"Model: v4-boatrace-theory")
+    print(f"Predicted: {stats['total']}")
+    print(f"Hit: {stats['hit']} / Miss: {stats['miss']}")
+    print(f"Hit Rate: {hit_rate}%")
     print(f"{'='*40}")
 
 

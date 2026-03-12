@@ -56,31 +56,60 @@ def scrape_race(jcd, hd, rno):
         soup = fetch(f"{BASE}/racelist?rno={rno}&jcd={jcd}&hd={hd}")
         boats = []
         
-        # テーブルの各行(tbody)から選手データを取得
         for tbody in soup.find_all("tbody", class_="is-fs12"):
             boat = {}
-            # 選手名
             a = tbody.find("a", href=re.compile(r"profile\?toban="))
             if a:
                 boat["name"] = a.get_text(strip=True)
-                # 登録番号
                 m2 = re.search(r"toban=(\d+)", a["href"]) 
                 if m2: boat["toban"] = m2.group(1)
             
-            # 全テキストを取得して数値を解析  
             tds = tbody.find_all("td")
-            nums = []
-            for td in tds:
-                t = td.get_text(strip=True)
-                # 勝率パターン: X.XX
-                if re.match(r"^\d\.\d{2}$", t):
-                    nums.append(float(t))
             
-            # 最初の勝率らしき数値を採用(全国勝率)
-            if nums:
-                boat["winRate"] = nums[0]
-                if len(nums) >= 2:
-                    boat["winRate2"] = nums[1]  # 当地勝率
+            # td[3]: "F0L00.14" → 平均STは0.XX形式
+            if len(tds) > 3:
+                st_text = tds[3].get_text(strip=True)
+                st_nums = re.findall(r'(0\.\d{2})', st_text)
+                if st_nums:
+                    boat["avgST"] = float(st_nums[-1])
+            
+            # td[4]: "6.2838.7562.50" → 勝率/2連率/3連率
+            # 数値パターン: 1-2桁.2桁 (例: 6.28, 38.75, 62.50)
+            if len(tds) > 4:
+                wr_text = tds[4].get_text(strip=True)
+                wr_nums = re.findall(r'(\d{1,2}\.\d{2})', wr_text)
+                if wr_nums:
+                    boat["winRate"] = float(wr_nums[0])
+                    if len(wr_nums) >= 2:
+                        boat["winRate2ren"] = float(wr_nums[1])
+            
+            # td[5]: 当地 勝率/2連率/3連率
+            if len(tds) > 5:
+                lw_text = tds[5].get_text(strip=True)
+                lw_nums = re.findall(r'(\d{1,2}\.\d{2})', lw_text)
+                if lw_nums:
+                    boat["winRate2"] = float(lw_nums[0])
+            
+            # td[6]: "4126.7940.48" → モーター番号(41) + 2連率(26.79) + 3連率(40.48)
+            if len(tds) > 6:
+                mt_text = tds[6].get_text(strip=True)
+                mt_nums = re.findall(r'(\d{1,2}\.\d{2})', mt_text)
+                if mt_nums:
+                    boat["motor2ren"] = float(mt_nums[0])
+            
+            # td[7]: ボート番号/2連率/3連率
+            if len(tds) > 7:
+                bt_text = tds[7].get_text(strip=True)
+                bt_nums = re.findall(r'(\d{1,2}\.\d{2})', bt_text)
+                if bt_nums:
+                    boat["boat2ren"] = float(bt_nums[0])
+            
+            # 級別の抽出 (A1, A2, B1, B2) - td[2]に含まれる
+            if len(tds) > 2:
+                grade_text = tds[2].get_text(strip=True)
+                g = re.search(r'([AB][12])', grade_text)
+                if g:
+                    boat["grade"] = g.group(1)
             
             if "name" in boat:
                 boat["num"] = len(boats) + 1
