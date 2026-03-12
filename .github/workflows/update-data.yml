@@ -1,4 +1,4 @@
-name: 🚤 競艇データ自動更新
+name: boatrace-auto-update
 
 on:
   schedule:
@@ -14,35 +14,34 @@ jobs:
   update-data:
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 チェックアウト
+      - name: checkout
         uses: actions/checkout@v4
 
-      - name: 🐍 Python セットアップ
+      - name: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 📦 依存関係インストール
+      - name: install-deps
         run: pip install requests beautifulsoup4
 
-      - name: 📂 dataディレクトリ作成
+      - name: create-data-dir
         run: mkdir -p data
 
-      - name: 🚤 データ取得（過去3日分）
+      - name: fetch-data
         run: python quick_fetch.py
         timeout-minutes: 30
 
-      - name: 📊 変更確認 & コミット
+      - name: commit-changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add race_db.json
           if git diff --staged --quiet; then
-            echo "✅ データ変更なし"
+            echo "No changes"
           else
-            git commit -m "🚤 データ自動更新 $(date '+%Y-%m-%d %H:%M' -d '+9 hours')"
+            git commit -m "auto update data"
             git push
-            echo "✅ データ更新をプッシュしました"
           fi
 
   deploy:
@@ -52,19 +51,19 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: 📥 チェックアウト
+      - name: checkout
         uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: 📄 Pages設定
+      - name: configure-pages
         uses: actions/configure-pages@v4
 
-      - name: 📦 アーティファクトアップロード
+      - name: upload-artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
 
-      - name: 🚀 デプロイ
+      - name: deploy
         id: deployment
         uses: actions/deploy-pages@v4
