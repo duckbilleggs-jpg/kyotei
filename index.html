@@ -307,6 +307,8 @@ input:focus{outline:none;border-color:var(--accent)}
         <p>予測ページでデータを入力して<br>「予測する」を押してください</p>
       </div>
     </div>
+    <!-- AI成績ダッシュボード -->
+    <div id="dashboardContent" style="margin-top:16px"></div>
   </div>
 
   <!-- ===== 分析ページ ===== -->
@@ -1304,6 +1306,136 @@ function updateSyncStatus(){
 }
 updateSyncStatus();
 setInterval(updateSyncStatus, 30000);
+
+// ===== AI成績ダッシュボード =====
+let predictionsData = null;
+
+async function loadPredictions(){
+  try {
+    const res = await fetch('predictions.json?' + Date.now());
+    if(!res.ok) return;
+    predictionsData = await res.json();
+    renderDashboard();
+  } catch(e){
+    console.log('predictions.json not available');
+  }
+}
+
+function renderDashboard(){
+  if(!predictionsData) return;
+  const el = document.getElementById('dashboardContent');
+  if(!el) return;
+  
+  const s = predictionsData.stats;
+  const daily = predictionsData.dailySummary || [];
+  const preds = predictionsData.predictions || [];
+  
+  // 的中率の色
+  const rateColor = s.hitRate >= 50 ? 'var(--green)' : s.hitRate >= 30 ? 'var(--gold)' : 'var(--red)';
+  
+  let html = `
+    <div class="card fade-in" style="border:1px solid rgba(0,212,255,.15)">
+      <div class="section-title">🤖 AI全自動予測 成績</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:12px">
+        全レースを自動予測し、結果と比較しています（${predictionsData.generated || ''}更新）
+      </div>
+
+      <!-- 的中率カード -->
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <div style="flex:1;padding:16px;border-radius:12px;background:rgba(0,230,118,.06);border:1px solid rgba(0,230,118,.15);text-align:center">
+          <div style="font-size:11px;color:var(--text2)">的中率</div>
+          <div style="font-size:32px;font-weight:900;color:${rateColor}">${s.hitRate}%</div>
+        </div>
+        <div style="flex:1;padding:16px;border-radius:12px;background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.15);text-align:center">
+          <div style="font-size:11px;color:var(--text2)">戦績</div>
+          <div style="font-size:18px;font-weight:700;margin-top:4px">
+            <span style="color:var(--green)">${s.hit}勝</span>
+            <span style="color:var(--text2);font-size:14px"> - </span>
+            <span style="color:var(--red)">${s.miss}敗</span>
+          </div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">${s.totalPredicted}レース中</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 日別成績 -->
+    <div class="card fade-in">
+      <div class="section-title">📅 日別成績</div>
+      ${daily.map(d => {
+        const dateStr = d.date ? d.date.replace(/(\d{4})(\d{2})(\d{2})/, '$1/$2/$3') : '';
+        const barW = Math.max(d.rate, 5);
+        const barColor = d.rate >= 50 ? 'var(--green)' : d.rate >= 30 ? 'var(--gold)' : 'var(--red)';
+        return `
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.03)">
+            <div style="font-size:12px;color:var(--text2);width:70px;flex-shrink:0">${dateStr}</div>
+            <div style="flex:1;height:20px;background:rgba(255,255,255,.03);border-radius:6px;overflow:hidden">
+              <div style="height:100%;width:${barW}%;background:${barColor};border-radius:6px;display:flex;align-items:center;padding-left:6px;font-size:10px;font-weight:700;min-width:35px">${d.rate}%</div>
+            </div>
+            <div style="font-size:11px;color:var(--text2);width:60px;text-align:right;flex-shrink:0">
+              <span style="color:var(--green)">${d.hit}</span>/<span style="color:var(--red)">${d.miss}</span>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <!-- 最新レース結果一覧 -->
+    <div class="card fade-in">
+      <div class="section-title">🏁 最新レース結果</div>
+      <div id="predictionsList">
+        ${renderPredictionsList(preds.filter(p => p.result).slice(0, 20))}
+      </div>
+      ${preds.filter(p => p.result).length > 20 ? `
+        <button class="btn btn-secondary" onclick="showAllPredictions()" style="margin-top:8px;font-size:12px;padding:8px">
+          📋 全${preds.filter(p => p.result).length}件を表示
+        </button>
+      ` : ''}
+    </div>
+  `;
+  
+  el.innerHTML = html;
+}
+
+function renderPredictionsList(preds){
+  const venueMap = {};
+  VENUES.forEach(v => venueMap[v.id] = v.name);
+  
+  return preds.map(p => {
+    const vname = venueMap[p.venue] || p.venueName || p.venue;
+    const dateStr = p.date ? p.date.replace(/(\d{4})(\d{2})(\d{2})/, '$2/$3') : '';
+    const winner = p.result ? p.result.winner : null;
+    const order = p.result && p.result.order ? p.result.order : [];
+    const hit = p.hit;
+    
+    return `
+      <div style="display:flex;align-items:center;gap:6px;padding:8px 4px;border-bottom:1px solid rgba(255,255,255,.03);font-size:12px">
+        <div style="width:14px;text-align:center">${hit === true ? '✅' : hit === false ? '❌' : '⏳'}</div>
+        <div style="width:42px;color:var(--text2);flex-shrink:0">${dateStr}</div>
+        <div style="width:30px;font-weight:600;flex-shrink:0">${vname}</div>
+        <div style="width:20px;color:var(--text2);flex-shrink:0">${p.raceNo}R</div>
+        <div style="flex:1;display:flex;align-items:center;gap:4px">
+          <span style="color:var(--accent);font-weight:700">${p.topPick}号</span>
+          <span style="color:var(--text2)">→</span>
+          ${order.slice(0,3).map((o,i) => {
+            const medals = ['🥇','🥈','🥉'];
+            const bn = (o.boat||1) - 1;
+            return `<span style="font-size:10px">${medals[i]||''}${o.boat}</span>`;
+          }).join(' ')}
+        </div>
+        <div style="font-size:11px;color:var(--text2)">${(p.topProb * 100).toFixed(0)}%</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function showAllPredictions(){
+  if(!predictionsData) return;
+  const preds = predictionsData.predictions.filter(p => p.result);
+  document.getElementById('predictionsList').innerHTML = renderPredictionsList(preds);
+}
+
+// ページロード時にpredictions.jsonの読み込みを開始
+loadPredictions();
 
 // ===== PWA対応 =====
 if('serviceWorker' in navigator){
