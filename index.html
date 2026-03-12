@@ -513,6 +513,7 @@ function showToast(msg){
 
 // ===== AI予測エンジン =====
 let lastPrediction = null;
+let selectedRaceKey = null; // 選択中のレース情報
 
 function predict(){
   const venue = venueSelect.value;
@@ -531,12 +532,25 @@ function predict(){
   // 予測確率計算
   const probs = calculateProbabilities(boats, venue);
 
+  // DBからレース結果を取得
+  let dbResult = null;
+  const raceNoSel = document.getElementById('raceNoSelect');
+  if(raceNoSel.value && raceDB){
+    const sel = JSON.parse(raceNoSel.value);
+    selectedRaceKey = sel;
+    const race = raceDB.races.find(r => r.date === sel.date && r.venue === sel.venue && r.raceNo === sel.raceNo);
+    if(race && race.result && race.result.order && race.result.order.length > 0){
+      dbResult = race.result;
+    }
+  }
+
   lastPrediction = {
     venue: venue,
     venueName: VENUES.find(v=>v.id===venue).name,
     boats: boats,
     probs: probs,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    dbResult: dbResult
   };
 
   renderResult(lastPrediction);
@@ -596,6 +610,15 @@ function renderResult(pred){
     else{ verdict='❌ 見送り'; verdictClass='badge-skip'; }
   }
 
+  // DB結果の取得
+  const dbResult = pred.dbResult;
+  const hasResult = dbResult && dbResult.order && dbResult.order.length > 0;
+  let winner = null;
+  if(hasResult){
+    const first = dbResult.order.find(o => o.rank === 1);
+    if(first) winner = first.boat;
+  }
+
   let html = `
     <div class="result-card fade-in">
       <div class="result-rank">AI予測 1着</div>
@@ -633,8 +656,69 @@ function renderResult(pred){
     </div>
     ` : ''}
 
+    ${hasResult ? renderAutoResult(dbResult, topPick.boat, sorted) : renderManualResult()}
+  `;
+
+  document.getElementById('resultContent').innerHTML = html;
+
+  // 結果があれば自動で学習に反映
+  if(hasResult && winner && lastPrediction){
+    setTimeout(() => autoRecordResult(winner, dbResult.order), 500);
+  }
+}
+
+// ===== 結果自動表示 =====
+function renderAutoResult(result, predicted, sorted){
+  const medals = ['🥇','🥈','🥉'];
+  const order = result.order.sort((a,b) => a.rank - b.rank).slice(0, 3);
+  const first = order.find(o => o.rank === 1);
+  const hit = first && first.boat === predicted;
+
+  return `
+    <div class="card fade-in" style="border:1px solid ${hit ? 'rgba(0,230,118,.3)' : 'rgba(255,82,82,.2)'};background:${hit ? 'rgba(0,230,118,.05)' : 'rgba(255,82,82,.05)'}">
+      <div class="section-title">🏁 レース結果（自動取得）</div>
+      <div style="display:flex;justify-content:center;gap:8px;margin:12px 0">
+        ${order.map((o, i) => {
+          const bn = o.boat - 1;
+          return `
+            <div style="text-align:center;flex:1;max-width:100px">
+              <div style="font-size:24px;margin-bottom:4px">${medals[i]||''}</div>
+              <div style="width:52px;height:52px;border-radius:14px;background:${boatColors[bn]};${boatBorders[bn]?'border:'+boatBorders[bn]:'border:2px solid transparent'};display:flex;align-items:center;justify-content:center;font-weight:900;font-size:22px;color:${boatTextColors[bn]};margin:0 auto">${o.boat}</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:4px">${o.rank}着</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div style="text-align:center;margin-top:8px">
+        <span class="badge ${hit?'badge-hit':'badge-miss'}" style="font-size:14px;padding:8px 20px">
+          ${hit ? '✅ 的中！' : '❌ ハズレ'}
+        </span>
+        <div style="margin-top:6px;font-size:12px;color:var(--text2)">
+          予測: ${predicted}号艇 → 結果: ${first ? first.boat : '?'}号艇
+        </div>
+      </div>
+      ${result.tansho_payout ? `
+        <div style="text-align:center;margin-top:8px;font-size:13px;color:var(--gold)">
+          💰 単勝払戻: ¥${result.tansho_payout.toLocaleString()}
+        </div>
+      ` : ''}
+      <div style="text-align:center;margin-top:6px;font-size:11px;color:var(--accent)">
+        📈 学習データに自動反映済み
+      </div>
+    </div>
+  `;
+}
+
+// ===== 手動入力（結果がDB未登録の場合）=====
+function renderManualResult(){
+  return `
     <div class="card fade-in record-section">
-      <div class="section-title">📝 実際の結果を記録</div>
+      <div class="section-title">⏳ レース結果</div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:10px">結果がまだDBにありません。手動入力するか、データ更新後に確認してください。</p>
+      <button class="btn btn-secondary" onclick="refreshResults()" style="margin-bottom:10px;font-size:13px;padding:10px">
+        🔄 最新データをチェック
+      </button>
+      <div class="section-title" style="margin-top:8px">📝 手動で結果を記録</div>
       <p style="font-size:12px;color:var(--text2);margin-bottom:10px">1着の艇番をタップ → モデルが学習します</p>
       <div class="record-btns" id="recordBtns">
         ${[1,2,3,4,5,6].map(n=>`
@@ -643,11 +727,70 @@ function renderResult(pred){
       </div>
     </div>
   `;
-
-  document.getElementById('resultContent').innerHTML = html;
 }
 
-// ===== 結果記録 =====
+// ===== DBリロードして結果チェック =====
+async function refreshResults(){
+  showToast('🔄 最新データを取得中...');
+  const ok = await loadRaceDB();
+  if(!ok){ showToast('❌ データ取得失敗'); return; }
+
+  // 選択中のレースの結果を再チェック
+  if(selectedRaceKey && raceDB){
+    const race = raceDB.races.find(r => r.date === selectedRaceKey.date && r.venue === selectedRaceKey.venue && r.raceNo === selectedRaceKey.raceNo);
+    if(race && race.result && race.result.order && race.result.order.length > 0){
+      if(lastPrediction){
+        lastPrediction.dbResult = race.result;
+        renderResult(lastPrediction);
+        showToast('🏁 結果を取得しました！');
+        return;
+      }
+    }
+  }
+  showToast('⏳ まだ結果が登録されていません');
+}
+
+// ===== 結果自動記録 =====
+function autoRecordResult(actual, order){
+  if(!lastPrediction) return;
+
+  const sorted = [...lastPrediction.probs].sort((a,b)=>b.prob-a.prob);
+  const topPick = sorted[0].boat;
+  const hit = topPick === actual;
+
+  // 履歴に同じレースが既にあるか確認（重複防止）
+  const history = loadHistory();
+  if(selectedRaceKey){
+    const dup = history.find(h => h.raceKey && h.raceKey.date === selectedRaceKey.date && h.raceKey.venue === selectedRaceKey.venue && h.raceKey.raceNo === selectedRaceKey.raceNo);
+    if(dup) return; // 既に記録済み
+  }
+
+  const entry = {
+    id: Date.now(),
+    venue: lastPrediction.venue,
+    venueName: lastPrediction.venueName,
+    boats: lastPrediction.boats,
+    probs: lastPrediction.probs,
+    topPick: topPick,
+    topProb: sorted[0].prob,
+    topOdds: sorted[0].odds,
+    topEV: sorted[0].ev,
+    actual: actual,
+    order: order.slice(0, 3), // 1-2-3着
+    hit: hit,
+    timestamp: lastPrediction.timestamp,
+    raceKey: selectedRaceKey,
+    autoRecorded: true
+  };
+  history.unshift(entry);
+  saveHistory(history);
+
+  // 学習補正
+  updateCorrection(lastPrediction.venue, topPick, actual, lastPrediction.probs);
+  lastPrediction = null;
+}
+
+// ===== 手動結果記録 =====
 function recordResult(actual){
   if(!lastPrediction){ showToast('先に予測してください'); return; }
 
@@ -669,7 +812,8 @@ function recordResult(actual){
     topEV: sorted[0].ev,
     actual: actual,
     hit: hit,
-    timestamp: lastPrediction.timestamp
+    timestamp: lastPrediction.timestamp,
+    raceKey: selectedRaceKey
   };
   history.unshift(entry);
   saveHistory(history);
@@ -682,8 +826,10 @@ function recordResult(actual){
     btn.style.opacity='0.4';
     btn.style.pointerEvents='none';
   });
-  event.target.style.opacity='1';
-  event.target.style.border='3px solid var(--accent)';
+  if(event && event.target){
+    event.target.style.opacity='1';
+    event.target.style.border='3px solid var(--accent)';
+  }
 
   // 結果フィードバック表示
   const feedbackEl = document.createElement('div');
@@ -700,7 +846,8 @@ function recordResult(actual){
       </div>
     </div>
   `;
-  document.querySelector('.record-section').appendChild(feedbackEl);
+  const rs = document.querySelector('.record-section');
+  if(rs) rs.appendChild(feedbackEl);
 
   showToast(hit ? '🎉 的中！学習データ更新' : '📈 学習データ更新');
   lastPrediction = null;
