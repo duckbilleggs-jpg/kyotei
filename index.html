@@ -1031,8 +1031,33 @@ function filterAnalysis(venue){
 
 // ===== シミュレーション =====
 function renderSim(){
-  const history = loadHistory();
+  const localHistory = loadHistory();
   const el = document.getElementById('simContent');
+
+  // predictions.jsonのデータを統合（オッズ付き）
+  let history = [...localHistory];
+  if(predictionsData && predictionsData.predictions){
+    const autoEntries = predictionsData.predictions.filter(p => p.result && p.hit !== null).map(p => {
+      // allProbsからtopPickのオッズを取得
+      const topOdds = p.topEV && p.topProb > 0 ? p.topEV / p.topProb : (p.result.tansho_payout ? p.result.tansho_payout / 100 : 0);
+      return {
+        topPick: p.topPick,
+        topProb: p.topProb,
+        topEV: p.topEV,
+        topOdds: topOdds,
+        actual: p.result.winner,
+        hit: p.hit,
+        venueName: p.venueName || p.venue,
+        venue: p.venue,
+        date: p.date,
+        raceNo: p.raceNo,
+        timestamp: new Date(p.date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')).getTime()
+      };
+    });
+    if(autoEntries.length > localHistory.length){
+      history = autoEntries;
+    }
+  }
 
   if(history.length < 3){
     el.innerHTML = `
@@ -1045,16 +1070,28 @@ function renderSim(){
   }
 
   const betAmount = parseInt(localStorage.getItem('sim_bet')||'1000');
-  
-  const timestamps = history.map(h=>h.timestamp);
-  const minDate = new Date(Math.min(...timestamps));
-  const maxDate = new Date(Math.max(...timestamps));
+  const simPeriod = localStorage.getItem('sim_period') || 'all';
 
-  html = `
+  // 期間フィルター
+  const now = Date.now();
+  const periods = [
+    {key:'all', label:'全期間'},
+    {key:'1d', label:'直近1日'},
+    {key:'3d', label:'直近3日'},
+    {key:'7d', label:'直近7日'}
+  ];
+
+  let html = `
     <div class="card fade-in">
-      <div class="section-title">⚙️ 設定</div>
+      <div class="section-title">📅 期間選択</div>
+      <div class="filter-row">
+        ${periods.map(p => `
+          <div class="filter-chip ${simPeriod===p.key?'active':''}" onclick="setSimPeriod('${p.key}')">${p.label}</div>
+        `).join('')}
+      </div>
+
+      <div class="section-title">⚙️ 賭け金設定</div>
       <div class="sim-control">
-        <label>1レースの賭け金</label>
         <div class="sim-val" id="betDisplay">¥${betAmount.toLocaleString()}</div>
         <input type="range" min="100" max="10000" step="100" value="${betAmount}" 
                oninput="updateBet(this.value)" id="betSlider">
@@ -1064,17 +1101,39 @@ function renderSim(){
       </div>
     </div>
 
-    <div id="simResults">${renderSimResults(history, betAmount)}</div>
+    <div id="simResults">${renderSimResults(filterByPeriod(history, simPeriod), betAmount)}</div>
   `;
 
   el.innerHTML = html;
 }
 
+function filterByPeriod(history, period){
+  if(period === 'all') return history;
+  const now = Date.now();
+  const days = period === '1d' ? 1 : period === '3d' ? 3 : 7;
+  const cutoff = now - days * 86400000;
+  return history.filter(h => (h.timestamp || 0) >= cutoff);
+}
+
+function setSimPeriod(period){
+  localStorage.setItem('sim_period', period);
+  renderSim();
+}
+
 function updateBet(val){
   localStorage.setItem('sim_bet',val);
   document.getElementById('betDisplay').textContent = '¥'+parseInt(val).toLocaleString();
-  const history = loadHistory();
-  document.getElementById('simResults').innerHTML = renderSimResults(history, parseInt(val));
+  const localHistory = loadHistory();
+  let history = [...localHistory];
+  if(predictionsData && predictionsData.predictions){
+    const autoEntries = predictionsData.predictions.filter(p => p.result && p.hit !== null).map(p => {
+      const topOdds = p.topEV && p.topProb > 0 ? p.topEV / p.topProb : 0;
+      return { topPick:p.topPick, topProb:p.topProb, topEV:p.topEV, topOdds:topOdds, hit:p.hit, venueName:p.venueName, venue:p.venue, date:p.date, timestamp:new Date(p.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')).getTime() };
+    });
+    if(autoEntries.length > localHistory.length) history = autoEntries;
+  }
+  const period = localStorage.getItem('sim_period') || 'all';
+  document.getElementById('simResults').innerHTML = renderSimResults(filterByPeriod(history, period), parseInt(val));
 }
 
 function renderSimResults(history, bet){
