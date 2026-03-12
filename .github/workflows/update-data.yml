@@ -1,4 +1,4 @@
-name: boatrace-auto-update
+name: data-update
 
 on:
   schedule:
@@ -7,8 +7,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   update-data:
@@ -43,27 +41,3 @@ jobs:
             git commit -m "auto update data"
             git push
           fi
-
-  deploy:
-    needs: update-data
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: configure-pages
-        uses: actions/configure-pages@v4
-
-      - name: upload-artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: '.'
-
-      - name: deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
