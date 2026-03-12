@@ -1,4 +1,4 @@
-name: name: 🚤 競艇データ自動更新
+name: 🚤 競艇データ自動更新
 
 on:
   schedule:
