@@ -449,6 +449,7 @@ def process_all_races():
                 'topEV': pred['topEV'],
                 'evPick': pred.get('evPick'),
                 'evValue': pred.get('evValue'),
+                'allProbs': pred.get('allProbs', []),  # 各艇の確率・EV・factors
             }
             
             result = race.get('result', {})

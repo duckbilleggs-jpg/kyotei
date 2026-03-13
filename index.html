@@ -555,10 +555,17 @@ function predict(){
     }
   }
 
+  // allProbsに選手名を付与
+  const boatNames = aiPred.boatNames || [];
+  const probs = (aiPred.allProbs || []).map(p => ({
+    ...p,
+    name: boatNames[p.boat - 1] || ''
+  }));
+
   lastPrediction = {
     venue: venue,
-    venueName: VENUES.find(v=>v.id===venue).name,
-    probs: aiPred.allProbs || [], // {boat, prob, ev, odds, factors}
+    venueName: (VENUES.find(v=>v.id===venue) || {}).name || aiPred.venueName || venue,
+    probs: probs, // {boat, prob, ev, odds, factors, name}
     topPick: aiPred.topPick,
     timestamp: Date.now(),
     dbResult: dbResult
@@ -642,6 +649,7 @@ function renderResult(pred){
           <div class="prob-item" style="margin-bottom:8px">
             <div class="num" style="color:${boatColors[p.boat-1]}">${p.boat}</div>
             <div style="flex:1">
+              ${p.name ? `<div style="font-size:11px;color:var(--text2);margin-bottom:3px;padding-left:2px">${p.name.trim()}</div>` : ''}
               <div class="prob-bar-bg">
                 <div class="prob-bar" style="width:${Math.max(p.prob*100*1.5,8)}%">${(p.prob*100).toFixed(1)}%</div>
               </div>
