@@ -119,13 +119,84 @@ DEFAULT_WEIGHTS = {
     'weight': 0.005,     # 体重影響度
     'adj_bonus': 0.04,   # 隣接コース格下ボーナス
     'gap_strength': 1.0, # 力量差テーブルの適用強度
+    'venue_affinity': 0.08, # 会場相性ファクター重み
+    'recent_form': 0.06,    # 直近フォームファクター重み
 }
 
 
-def predict_race(boats, venue, racer_db, weather=None, odds=None, fw=None):
+def build_performance_index(races):
+    """
+    race_db.jsonの過去レース結果から、選手ごとの:
+    1. 会場別勝率 (venue_win[toban][venue] = 勝率)
+    2. 直近10レースの勝率 (recent_wins[toban] = 勝率)
+    を集計して辞書として返す。
+    新たなスクレイピングなし。既存データのみ使用。
+    """
+    from collections import defaultdict
+    
+    # 各选手のレース履歴: {toban: [(date, venue, course_no, rank)]}
+    racer_history = defaultdict(list)
+    
+    for race in races:
+        result = race.get('result', {})
+        order = result.get('order', [])
+        if not order:
+            continue
+        
+        date = race.get('date', '')
+        venue = race.get('venue', '')
+        boats = race.get('boats', [])
+        
+        # 着順を辞書化: {boat_num: rank}
+        rank_by_boat = {o['boat']: o['rank'] for o in order}
+        
+        for i, boat in enumerate(boats):
+            toban = boat.get('toban', '')
+            if not toban:
+                continue
+            boat_num = i + 1  # 1-indexed
+            rank = rank_by_boat.get(boat_num, 99)  # 99=不明
+            racer_history[toban].append({
+                'date': date,
+                'venue': venue,
+                'boat_num': boat_num,
+                'rank': rank
+            })
+    
+    # 会場別勝率の集計
+    venue_win = defaultdict(lambda: defaultdict(lambda: {'wins': 0, 'total': 0}))
+    for toban, history in racer_history.items():
+        for h in history:
+            v = h['venue']
+            venue_win[toban][v]['total'] += 1
+            if h['rank'] == 1:
+                venue_win[toban][v]['wins'] += 1
+    
+    venue_wr = {}  # {toban: {venue: win_rate}}
+    for toban, venues in venue_win.items():
+        venue_wr[toban] = {}
+        for v, stat in venues.items():
+            if stat['total'] >= 3:  # 3レース以上あれば信頼性あり
+                venue_wr[toban][v] = stat['wins'] / stat['total']
+    
+    # 直近10レースの勝率
+    recent_form = {}  # {toban: recent_win_rate}
+    for toban, history in racer_history.items():
+        sorted_h = sorted(history, key=lambda x: x['date'], reverse=True)
+        recent = sorted_h[:10]  # 最新10レース
+        if len(recent) >= 3:
+            wins = sum(1 for h in recent if h['rank'] == 1)
+            recent_form[toban] = wins / len(recent)
+    
+    print(f"📊 パフォーマンスインデックス構築: {len(venue_wr)}選手, {len(recent_form)}選手の直近フォーム")
+    return {'venue_wr': venue_wr, 'recent_form': recent_form}
+
+
+def predict_race(boats, venue, racer_db, weather=None, odds=None, fw=None, perf_index=None):
     """
     v8: 全要素統合予測（ファクター重み付き）
     fw: factor_weights - 自己修正ループで更新される重み辞書
+    perf_index: build_performance_index()の結果（会場相性・直近フォーム）
     """
     if len(boats) < 6:
         return None
@@ -257,6 +328,46 @@ def predict_race(boats, venue, racer_db, weather=None, odds=None, fw=None):
             scores[i] *= (1.0 + fw['adj_bonus'])
         if i < 5 and wrs[i] > wrs[i+1] + 1.5:
             scores[i] *= (1.0 + fw['adj_bonus'] * 0.5)
+    
+    # === ファクター8: 会場相性（既存race_dbから集計済み）===
+    if perf_index and perf_index.get('venue_wr'):
+        venue_wr = perf_index['venue_wr']
+        # 全選手の当会場での平均勝率（基準値として使用）
+        venue_rates = []
+        tobans_list = [boats[i].get('toban', '') for i in range(6)]
+        for i in range(6):
+            toban = tobans_list[i]
+            if toban and toban in venue_wr and venue in venue_wr[toban]:
+                venue_rates.append(venue_wr[toban][venue])
+            else:
+                venue_rates.append(None)
+        
+        # データがある選手のみ適用（1/6=0.167 が「普通」）
+        valid_rates = [r for r in venue_rates if r is not None]
+        if valid_rates:
+            avg_venue_rate = sum(valid_rates) / len(valid_rates)
+            for i in range(6):
+                if venue_rates[i] is not None:
+                    # 平均を基準に上下補正（最大±10%）
+                    ratio = venue_rates[i] / max(avg_venue_rate, 0.001)
+                    adj = 1.0 + (ratio - 1.0) * fw.get('venue_affinity', 0.08)
+                    adj = max(0.90, min(1.10, adj))
+                    scores[i] *= adj
+    
+    # === ファクター9: 直近フォーム（既存race_dbから集計済み）===
+    if perf_index and perf_index.get('recent_form'):
+        recent_form = perf_index['recent_form']
+        # 平均期待勝率 1/6=0.167
+        base_win_rate = 1.0 / 6.0
+        for i in range(6):
+            toban = boats[i].get('toban', '')
+            if toban and toban in recent_form:
+                rf = recent_form[toban]
+                # フォームが良い（高勝率）→ボーナス、悪い→ペナルティ（最大±8%）
+                ratio = rf / max(base_win_rate, 0.001)
+                adj = 1.0 + (ratio - 1.0) * fw.get('recent_form', 0.06)
+                adj = max(0.92, min(1.08, adj))
+                scores[i] *= adj
     
     # === 確率に変換 ===
     total = sum(scores)
@@ -392,6 +503,9 @@ def process_all_races():
         return
     print(f"{len(dates)} days: {dates[0]} - {dates[-1]}")
     
+    # 既存race_dbから選手のパフォーマンスインデックスを構築（新たなスクレイピング不要）
+    perf_index = build_performance_index(races)
+    
     # 自己修正ファクター重み（古い日から順に更新される）
     fw = DEFAULT_WEIGHTS.copy()
     
@@ -431,7 +545,7 @@ def process_all_races():
             venue = race.get('venue', '')
             
             # 現在のfwで予測
-            pred = predict_race(boats, venue, racer_db, weather, odds, fw)
+            pred = predict_race(boats, venue, racer_db, weather, odds, fw, perf_index=perf_index)
             if not pred:
                 continue
             
