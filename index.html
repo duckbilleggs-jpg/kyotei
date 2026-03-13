@@ -533,7 +533,13 @@ function predict(){
     return;
   }
 
-  const aiPred = predictionsData.predictions.find(p => p.date === sel.date && p.venue === sel.venue && p.raceNo === sel.raceNo);
+  // raceNoの型が string/number で食い違うケースを考慮し、Number() でキャストして比較
+  const targetRaceNo = Number(sel.raceNo);
+  const aiPred = predictionsData.predictions.find(p => 
+    p.date === sel.date && 
+    p.venue === String(sel.venue).padStart(2, '0') && 
+    Number(p.raceNo) === targetRaceNo
+  );
   
   if(!aiPred){
     showToast('このレースのAI予測データが見つかりません');
